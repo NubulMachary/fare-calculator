@@ -1,9 +1,6 @@
 [build]
-  command = "npm install && npm run build"
+  command = "npm install && npm run build:ssr"
   publish = "dist/calculate-rent/browser"
-
-[build.environment]
-  NETLIFY_SKIP_ANGULAR_PLUGIN = "true"
 
 [[redirects]]
   from = "/*"
