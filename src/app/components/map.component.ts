@@ -1,4 +1,5 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, PLATFORM_ID, Inject } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { CommonModule } from '@angular/common';
 import { DistanceService, RouteCoordinates } from '../services/distance.service';
 import * as L from 'leaflet';
@@ -8,7 +9,7 @@ import * as L from 'leaflet';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="map-container">
+    <div class="map-container" *ngIf="isBrowser">
       <!-- Map Header -->
       <div class="map-header">
         <h3 class="map-title">Select Route on Map</h3>
@@ -83,6 +84,9 @@ import * as L from 'leaflet';
         <span class="error-icon">⚠</span>
         {{ distanceService.errorMessage() }}
       </div>
+    </div>
+    <div *ngIf="!isBrowser" class="map-container">
+      <p class="text-center text-gray-500 py-8">Map is only available in browser mode</p>
     </div>
   `,
   styles: [`
@@ -271,15 +275,23 @@ export class MapComponent implements OnInit, OnDestroy {
   private pointBMarker: L.Marker | null = null;
   private routePath: L.Polyline | null = null;
   private pointCount = 0;
+  isBrowser: boolean;
 
-  constructor(public distanceService: DistanceService) {}
+  constructor(
+    public distanceService: DistanceService,
+    @Inject(PLATFORM_ID) platformId: Object
+  ) {
+    this.isBrowser = isPlatformBrowser(platformId);
+  }
 
   ngOnInit(): void {
-    this.initializeMap();
+    if (this.isBrowser) {
+      this.initializeMap();
+    }
   }
 
   ngOnDestroy(): void {
-    if (this.map) {
+    if (this.isBrowser && this.map) {
       this.map.remove();
     }
   }
