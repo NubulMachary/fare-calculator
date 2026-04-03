@@ -9,11 +9,11 @@ import { Component, signal } from '@angular/core';
 export class App {
   // Input signals
   distance = signal<number | string>('');
-  mileage = signal<number | string>('');
-  fuelPrice = signal<number | string>('');
-  driverExpense = signal<number | string>('');
+  mileage = signal<number | string>(7);
+  fuelPrice = signal<number | string>(90);
+  driverExpense = signal<number | string>(1000);
   tollExpense = signal<number | string>('');
-  profit = signal<number | string>('');
+  profit = signal<number | string>(5000);
 
   // Output signals - Price Calculation
   totalPrice = signal<number>(0);
@@ -34,6 +34,10 @@ export class App {
 
   constructor() {
     // Auto-calculate when any input changes
+  }
+
+  toNumber(value: number | string): number {
+    return Number(value);
   }
 
   calculatePrice() {
