@@ -1,4 +1,5 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, OnInit } from '@angular/core';
+import { DistanceService } from './services/distance.service';
 
 @Component({
   selector: 'app-root',
@@ -6,7 +7,7 @@ import { Component, signal } from '@angular/core';
   standalone: false,
   styleUrl: './app.css'
 })
-export class App {
+export class App implements OnInit {
   // Input signals
   distance = signal<number | string>('');
   mileage = signal<number | string>(7);
@@ -32,8 +33,14 @@ export class App {
   literRequired = signal<number>(0);
   costPerLiter = signal<number>(0);
 
-  constructor() {
-    // Auto-calculate when any input changes
+  // Map and Distance service
+  showMapModal = signal<boolean>(false);
+
+  constructor(public distanceService: DistanceService) {}
+
+  ngOnInit(): void {
+    // Subscribe to distance changes and update the distance input
+    // This is handled through the distanceService.calculatedDistance signal
   }
 
   toNumber(value: number | string): number {
@@ -113,5 +120,24 @@ export class App {
     this.profit.set('');
     this.totalPrice.set(0);
     this.resetAnalytics();
+  }
+
+  /**
+   * Apply distance from map/route service
+   */
+  applyDistanceFromMap(): void {
+    const mapDistance = this.distanceService.getFinalDistance();
+    if (mapDistance > 0) {
+      this.distance.set(mapDistance);
+      this.showMapModal.set(false);
+      this.calculatePrice();
+    }
+  }
+
+  /**
+   * Toggle map modal visibility
+   */
+  toggleMapModal(): void {
+    this.showMapModal.set(!this.showMapModal());
   }
 }
