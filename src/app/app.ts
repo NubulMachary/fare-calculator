@@ -8,12 +8,12 @@ import { Component, signal } from '@angular/core';
 })
 export class App {
   // Input signals
-  distance = signal<number>(0);
-  mileage = signal<number>(7);
-  fuelPrice = signal<number>(90);
-  driverExpense = signal<number>(0);
-  tollExpense = signal<number>(0);
-  profit = signal<number>(5000);
+  distance = signal<number | string>('');
+  mileage = signal<number | string>('');
+  fuelPrice = signal<number | string>('');
+  driverExpense = signal<number | string>('');
+  tollExpense = signal<number | string>('');
+  profit = signal<number | string>('');
 
   // Output signals - Price Calculation
   totalPrice = signal<number>(0);
@@ -37,15 +37,15 @@ export class App {
   }
 
   calculatePrice() {
-    const dist = this.distance();
-    const mileage = this.mileage();
-    const fuelPrice = this.fuelPrice();
-    const driverExp = this.driverExpense();
-    const tollExp = this.tollExpense();
-    const profitMargin = this.profit();
+    const dist = Number(this.distance());
+    const mileage = Number(this.mileage());
+    const fuelPrice = Number(this.fuelPrice());
+    const driverExp = Number(this.driverExpense());
+    const tollExp = Number(this.tollExpense());
+    const profitMargin = Number(this.profit());
 
     // Validate inputs
-    if (mileage === 0 || dist === 0) {
+    if (mileage === 0 || dist === 0 || isNaN(dist) || isNaN(mileage) || isNaN(fuelPrice)) {
       this.totalPrice.set(0);
       this.resetAnalytics();
       return;
@@ -101,12 +101,12 @@ export class App {
   }
 
   resetForm() {
-    this.distance.set(0);
-    this.mileage.set(7);
-    this.fuelPrice.set(90);
-    this.driverExpense.set(0);
-    this.tollExpense.set(0);
-    this.profit.set(5000);
+    this.distance.set('');
+    this.mileage.set('');
+    this.fuelPrice.set('');
+    this.driverExpense.set('');
+    this.tollExpense.set('');
+    this.profit.set('');
     this.totalPrice.set(0);
     this.resetAnalytics();
   }
