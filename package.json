@@ -7,7 +7,13 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "serve:ssr:calculate-rent": "node dist/calculate-rent/server/server.mjs"
+    "build:ssr": "ng build --configuration production",
+    "build:ssr:dev": "ng build --configuration development",
+    "serve:ssr": "node dist/calculate-rent/server/server.mjs",
+    "serve:ssr:prod": "PORT=4000 NODE_ENV=production node dist/calculate-rent/server/server.mjs",
+    "serve:ssr:calculate-rent": "node dist/calculate-rent/server/server.mjs",
+    "start:ssr": "npm run build:ssr && npm run serve:ssr",
+    "dev:ssr": "npm run build:ssr:dev && npm run serve:ssr"
   },
   "private": true,
   "packageManager": "npm@10.8.2",
