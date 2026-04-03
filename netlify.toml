@@ -1,0 +1,11 @@
+[build]
+  command = "npm install && npm run build"
+  publish = "dist/calculate-rent/browser"
+
+[build.environment]
+  NETLIFY_SKIP_ANGULAR_PLUGIN = "true"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
