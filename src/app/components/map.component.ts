@@ -544,11 +544,32 @@ export class MapComponent implements OnInit, OnDestroy {
 
     // Dynamically import Leaflet library only at runtime (browser)
     if (!L) {
-      L = await import('leaflet');
+      const leafletMod = await import('leaflet');
+      // Some bundlers expose the library under the `default` property.
+      L = (leafletMod && (leafletMod as any).default) ? (leafletMod as any).default : leafletMod;
     }
 
-        // Create map centered on India
-        this.map = L.map('map').setView([20.5937, 78.9629], 5);
+    // Defensive logging to help diagnose issues in different environments
+    try {
+      // Log minimal info (avoid printing huge objects in production)
+      // eslint-disable-next-line no-console
+      console.debug && console.debug('Leaflet module loaded:', {
+        hasMap: !!(L && L.map),
+        hasTileLayer: !!(L && L.tileLayer)
+      });
+    } catch (err) {
+      // ignore logging errors
+    }
+
+    // Create map centered on India
+    try {
+      this.map = L.map('map').setView([20.5937, 78.9629], 5);
+    } catch (err) {
+      // Provide a helpful error message and include module introspection
+      // eslint-disable-next-line no-console
+      console.error('Failed to initialize Leaflet map. Leaflet module summary:', { L });
+      throw err;
+    }
 
         // Add OSM tiles
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
