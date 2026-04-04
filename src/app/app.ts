@@ -50,7 +50,94 @@ export class App implements OnInit {
 
 
 
-  constructor(public distanceService: DistanceService) {}
+  // Summary popup
+  showSummary = signal<boolean>(false);
+
+  /** Build a structured summary object consumed by the popup template. */
+  summaryData() {
+    const days = Math.max(1, Number(this.bookingDays()) || 1);
+    const mileage = Number(this.mileage()) || 0;
+    const fuelPrice = Number(this.fuelPrice()) || 0;
+    const driverExp = Number(this.driverExpense()) || 0;
+    const tollExp = Number(this.tollExpense()) || 0;
+    const profitPerDay = Number(this.profit()) || 0;
+
+    // ── Route legs ──────────────────────────────────────────────────────────
+    const mainDist = Number(this.distance()) || 0;
+    const mainState = this.mainMapState();
+    const legs: Array<{
+      label: string;
+      from: string; fromCoords: string;
+      to: string;   toCoords: string;
+      distanceKm: number;
+      isRoundTrip: boolean;
+      baseKm: number;
+    }> = [];
+
+    if (mainDist > 0) {
+      const rt = mainState?.isRoundTrip ?? false;
+      legs.push({
+        label: 'Main Distance',
+        from: mainState?.origin || '—',
+        fromCoords: mainState?.pointA
+          ? `${mainState.pointA.lat.toFixed(4)}, ${mainState.pointA.lng.toFixed(4)}` : '',
+        to: mainState?.destination || '—',
+        toCoords: mainState?.pointB
+          ? `${mainState.pointB.lat.toFixed(4)}, ${mainState.pointB.lng.toFixed(4)}` : '',
+        distanceKm: mainDist,
+        isRoundTrip: rt,
+        baseKm: rt ? mainDist / 2 : mainDist,
+      });
+    }
+
+    this.stops().forEach((stop, i) => {
+      const dist = Number(stop.distance) || 0;
+      if (dist <= 0) return;
+      const ms = this.mapStates()[i];
+      const rt = ms?.isRoundTrip ?? false;
+      legs.push({
+        label: `Stop ${i + 1}`,
+        from: ms?.origin || '—',
+        fromCoords: ms?.pointA
+          ? `${ms.pointA.lat.toFixed(4)}, ${ms.pointA.lng.toFixed(4)}` : '',
+        to: ms?.destination || '—',
+        toCoords: ms?.pointB
+          ? `${ms.pointB.lat.toFixed(4)}, ${ms.pointB.lng.toFixed(4)}` : '',
+        distanceKm: dist,
+        isRoundTrip: rt,
+        baseKm: rt ? dist / 2 : dist,
+      });
+    });
+
+    const totalKm = legs.reduce((s, l) => s + l.distanceKm, 0);
+
+    // ── Cost breakdown ──────────────────────────────────────────────────────
+    const litersNeeded = mileage > 0 ? totalKm / mileage : 0;
+    const fuelTotal = litersNeeded * fuelPrice;
+    const driverTotal = driverExp * days;
+    const tollTotal = tollExp;
+    const profitTotal = profitPerDay * days;
+    const costWithoutProfit = fuelTotal + driverTotal + tollTotal;
+    const grandTotal = costWithoutProfit + profitTotal;
+
+    return {
+      legs,
+      totalKm,
+      mileage,
+      fuelPrice,
+      litersNeeded,
+      fuelTotal,
+      driverExp,
+      driverTotal,
+      days,
+      tollTotal,
+      profitPerDay,
+      profitTotal,
+      costWithoutProfit,
+      grandTotal,
+      costPerKm: totalKm > 0 ? grandTotal / totalKm : 0,
+    };
+  }
 
   onMapStateChange(newState: { origin: any, destination: any, distance: number, isRoundTrip?: boolean, pointA?: { lat: number; lng: number } | null, pointB?: { lat: number; lng: number } | null }) {
     const idx = this.showMapModal();
