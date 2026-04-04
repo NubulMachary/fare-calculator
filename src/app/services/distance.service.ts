@@ -2,6 +2,7 @@ import { Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
+import { environment } from '../../environments/environment';
 
 export interface RouteCoordinates {
   lat: number;
@@ -14,12 +15,36 @@ export interface DistanceResult {
   routeGeometry: any; // GeoJSON geometry
 }
 
+export interface GeocodeResult {
+  name: string;
+  coordinates: RouteCoordinates;
+  address?: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class DistanceService {
-  private readonly API_KEY = 'YOUR_OPENROUTESERVICE_API_KEY'; // Replace with your actual API key
+  private getApiKey(): string {
+    // Try multiple sources for the API key
+    // 1. Check window for injected value
+    if ((window as any).VITE_OPENROUTESERVICE_KEY) {
+      return (window as any).VITE_OPENROUTESERVICE_KEY;
+    }
+    // 2. Check environment
+    if (environment.openrouteServiceKey) {
+      return environment.openrouteServiceKey;
+    }
+    // 3. Check localStorage (for manual setup)
+    const stored = localStorage.getItem('OPENROUTESERVICE_API_KEY');
+    if (stored) {
+      return stored;
+    }
+    return '';
+  }
+
   private readonly BASE_URL = 'https://api.openrouteservice.org/v2/directions/driving-car';
+  private readonly GEOCODING_URL = 'https://api.openrouteservice.org/geocode/search';
 
   // Signals for tracking route state
   pointA = signal<RouteCoordinates | null>(null);
@@ -65,6 +90,13 @@ export class DistanceService {
       return throwError(() => new Error('Both points must be selected'));
     }
 
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      const keyMsg = 'OpenRouteService API key not configured. Please set VITE_OPENROUTESERVICE_KEY environment variable or add it in browser localStorage.';
+      this.errorMessage.set(keyMsg);
+      return throwError(() => new Error(keyMsg));
+    }
+
     this.isLoading.set(true);
     this.errorMessage.set('');
 
@@ -72,7 +104,7 @@ export class DistanceService {
     const coordinates = `${pointAData.lng},${pointAData.lat}|${pointBData.lng},${pointBData.lat}`;
 
     return this.http.get<any>(
-      `${this.BASE_URL}?api_key=${this.API_KEY}&coordinates=${coordinates}&geometry=true`
+      `${this.BASE_URL}?api_key=${apiKey}&coordinates=${coordinates}&geometry=true`
     ).pipe(
       catchError((error) => {
         const errorMsg = error.error?.message || 'Failed to calculate distance';
@@ -125,6 +157,32 @@ export class DistanceService {
     this.isRoundTrip.set(false);
     this.routeGeometry.set(null);
     this.errorMessage.set('');
+  }
+
+  /**
+   * Search for locations by address/name (geocoding)
+   */
+  searchLocations(query: string): Observable<GeocodeResult[]> {
+    if (!query || query.trim().length < 2) {
+      return throwError(() => new Error('Search query too short'));
+    }
+
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      const keyMsg = 'OpenRouteService API key not configured. Please set VITE_OPENROUTESERVICE_KEY environment variable or add it via localStorage.';
+      this.errorMessage.set(keyMsg);
+      return throwError(() => new Error(keyMsg));
+    }
+
+    return this.http.get<any>(
+      `${this.GEOCODING_URL}?api_key=${apiKey}&text=${encodeURIComponent(query)}`
+    ).pipe(
+      catchError((error) => {
+        const errorMsg = error.error?.message || 'Failed to search locations';
+        console.error('Geocoding error:', errorMsg);
+        return throwError(() => new Error(errorMsg));
+      })
+    );
   }
 
   /**

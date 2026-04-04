@@ -6,8 +6,63 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  
+  <script>
+    // Inject API key from environment or localStorage for development
+    (function() {
+      // Check if already set
+      if (window.VITE_OPENROUTESERVICE_KEY) {
+        console.log('✓ API key already available');
+        return;
+      }
+      
+      // Try localStorage (fallback)
+      const storedKey = localStorage.getItem('OPENROUTESERVICE_API_KEY');
+      if (storedKey) {
+        window.VITE_OPENROUTESERVICE_KEY = storedKey;
+        console.log('✓ API key loaded from localStorage');
+      }
+    })();
+  </script>
 </head>
 <body>
   <app-root></app-root>
+  
+  <script>
+    // Helper function for users to manually inject API key via console
+    // Users can copy and paste: injectApiKey('your_key_here')
+    window.injectApiKey = function(key) {
+      if (!key || key.trim().length === 0) {
+        console.error('Error: API key cannot be empty');
+        return false;
+      }
+      localStorage.setItem('OPENROUTESERVICE_API_KEY', key);
+      window.VITE_OPENROUTESERVICE_KEY = key;
+      console.log('✓ API key injected. Reloading page...');
+      location.reload();
+      return true;
+    };
+    
+    // User helper info
+    if (!window.VITE_OPENROUTESERVICE_KEY && !localStorage.getItem('OPENROUTESERVICE_API_KEY')) {
+      console.info(
+        '%c⚠️  OpenRouteService API Key Not Found\n' +
+        '%c📍 Need help? Here\'s how:\n\n' +
+        '%c1. Get an API key: https://openrouteservice.org/\n' +
+        '%c2. Paste this in the console:\n' +
+        '%cinjectApiKey("your_api_key_here")\n\n' +
+        '%cOr add it to .env.local:\n' +
+        '%cVITE_OPENROUTESERVICE_KEY=your_api_key_here',
+        'font-size: 14px; font-weight: bold; color: #ff9800;',
+        'font-size: 12px; color: #666;',
+        'font-size: 11px; color: #999;',
+        'font-size: 11px; color: #999;',
+        'font-size: 11px; color: #999; background: #f5f5f5; padding: 2px 4px; font-family: monospace;',
+        'font-size: 11px; color: #999;',
+        'font-size: 11px; color: #999; background: #f5f5f5; padding: 2px 4px; font-family: monospace;',
+        'font-size: 11px; color: #999;'
+      );
+    }
+  </script>
 </body>
 </html>
