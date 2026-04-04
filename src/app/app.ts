@@ -25,7 +25,7 @@ export class App implements OnInit {
   profitMarginPercent = signal<number>(0);
   profitPerKm = signal<number>(0);
   costWithoutProfit = signal<number>(0);
-  standardRate = signal<number>(15); // Standard rate per km (can be adjusted)
+  standardRate = signal<number>(30); // Standard rate per km (can be adjusted)
   costVsStandard = signal<number>(0);
   isAboveStandard = signal<boolean>(false);
 
