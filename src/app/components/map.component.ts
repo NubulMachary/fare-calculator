@@ -5,7 +5,6 @@ import { FormsModule } from '@angular/forms';
 import { DistanceService, RouteCoordinates, GeocodeResult } from '../services/distance.service';
 
 // Import Leaflet CSS globally for the map to render
-import 'leaflet/dist/leaflet.css';
 import { finalize } from 'rxjs';
 
 // Lazy import leaflet to avoid SSR issues
@@ -524,10 +523,29 @@ export class MapComponent implements OnInit, OnDestroy {
     }
 
     private async initializeMap(): Promise<void> {
-        // Dynamically import leaflet to avoid SSR issues
-        if (!L) {
-            L = await import('leaflet');
+    // Dynamically import leaflet and its CSS to avoid SSR issues.
+    // Both imports happen only in the browser when this method is called.
+    if (this.isBrowser) {
+      try {
+        // Inject Leaflet CSS at runtime via a <link> tag. This avoids
+        // importing the CSS module statically (which could pull Leaflet
+        // code into the SSR bundle). Use the CDN path to avoid bundling.
+        const href = 'https://unpkg.com/leaflet/dist/leaflet.css';
+        if (!document.querySelector(`link[href="${href}"]`)) {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = href;
+          document.head.appendChild(link);
         }
+      } catch (e) {
+        console.warn('Could not inject leaflet CSS dynamically:', e);
+      }
+    }
+
+    // Dynamically import Leaflet library only at runtime (browser)
+    if (!L) {
+      L = await import('leaflet');
+    }
 
         // Create map centered on India
         this.map = L.map('map').setView([20.5937, 78.9629], 5);
@@ -777,7 +795,10 @@ export class MapComponent implements OnInit, OnDestroy {
         this.destinationSearchTimeout = setTimeout(() => {
           this.lastDestinationQuery = query;
           this.destinationLoading = true;
-          this.distanceService.searchLocations(query).subscribe({
+          this.distanceService.searchLocations(query).pipe(finalize(() => {
+            this.destinationLoading = false;
+            this.cdr.detectChanges();
+          })).subscribe({
             next: (results: any) => {
               this.destinationSearchResults = results.features.map((feature: any) => ({
                 name: feature.properties.name,
@@ -787,13 +808,11 @@ export class MapComponent implements OnInit, OnDestroy {
                   lng: feature.geometry.coordinates[0]
                 }
               }));
-              this.destinationLoading = false;
               this.showDestinationResults = this.destinationSearchResults.length > 0;
               try { this.destinationInput?.nativeElement.focus(); } catch (e) { /* ignore */ }
             },
             error: (err) => {
               console.error('Destination search error:', err);
-              this.destinationLoading = false;
               this.showDestinationResults = false;
             }
           });
