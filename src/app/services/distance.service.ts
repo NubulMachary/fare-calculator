@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, map } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 
 export interface RouteCoordinates {
@@ -25,20 +25,20 @@ export interface GeocodeResult {
   providedIn: 'root'
 })
 export class DistanceService {
+  /**
+   * Called once by MapComponent.ngAfterViewInit — the only place that uses
+   * the API key. No key logic lives in index.html or anywhere outside this
+   * service and the environment files.
+   */
+  ensureApiKeyReady(): void {
+    // Nothing to do at runtime; getApiKey() reads directly from environment.ts.
+    // This method is kept as an explicit hook so the call-site documents intent.
+  }
+
+  /** Read the API key solely from the compiled environment object. */
   private getApiKey(): string {
-    // Try multiple sources for the API key
-    // 1. Check window for injected value
-    if ((window as any).VITE_OPENROUTESERVICE_KEY) {
-      return (window as any).VITE_OPENROUTESERVICE_KEY;
-    }
-    // 2. Check environment
     if (environment.openrouteServiceKey) {
       return environment.openrouteServiceKey;
-    }
-    // 3. Check localStorage (for manual setup)
-    const stored = localStorage.getItem('OPENROUTESERVICE_API_KEY');
-    if (stored) {
-      return stored;
     }
     return '';
   }
@@ -103,7 +103,7 @@ export class DistanceService {
 
     const apiKey = this.getApiKey();
     if (!apiKey) {
-      const keyMsg = 'OpenRouteService API key not configured. Please set VITE_OPENROUTESERVICE_KEY environment variable or add it in browser localStorage.';
+      const keyMsg = 'OpenRouteService API key not configured. Please set openrouteServiceKey in src/environments/environment.ts.';
       this.errorMessage.set(keyMsg);
       return throwError(() => new Error(keyMsg));
     }
@@ -192,7 +192,7 @@ export class DistanceService {
 
     const apiKey = this.getApiKey();
     if (!apiKey) {
-      const keyMsg = 'OpenRouteService API key not configured. Please set VITE_OPENROUTESERVICE_KEY environment variable or add it via localStorage.';
+      const keyMsg = 'OpenRouteService API key not configured. Please set openrouteServiceKey in src/environments/environment.ts.';
       this.errorMessage.set(keyMsg);
       return throwError(() => new Error(keyMsg));
     }
@@ -215,5 +215,59 @@ export class DistanceService {
    */
   getDistanceMultiplier(): number {
     return this.isRoundTrip() ? 2 : 1;
+  }
+
+  /**
+   * Calculate distance between two explicit coordinates WITHOUT touching shared signals.
+   * Returns raw one-way distance in km so the caller can manage its own state.
+   */
+  calculateDistanceFor(
+    origin: RouteCoordinates,
+    destination: RouteCoordinates
+  ): Observable<{ distanceKm: number; duration: number }> {
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      const keyMsg =
+        'OpenRouteService API key not configured. Please set openrouteServiceKey in src/environments/environment.ts.';
+      return throwError(() => new Error(keyMsg));
+    }
+
+    const body = {
+      coordinates: [
+        [origin.lng, origin.lat],
+        [destination.lng, destination.lat]
+      ],
+      instructions: false,
+      geometry: true
+    };
+
+    const headers = {
+      Authorization: apiKey,
+      'Content-Type': 'application/json'
+    };
+
+    return this.http
+      .post<any>(this.BASE_URL, body, { headers })
+      .pipe(
+        map((result) => ({
+          distanceKm: Math.round((result.routes[0].summary.distance / 1000) * 100) / 100,
+          duration: result.routes[0].summary.duration
+        })),
+        catchError((error) => {
+          const errorMsg =
+            error?.error?.error ||
+            error?.error?.message ||
+            error.statusText ||
+            'Failed to calculate distance';
+          return throwError(() => new Error(errorMsg));
+        })
+      );
+  }
+
+  /**
+   * Search for locations without affecting shared signals.
+   */
+  searchLocationsClean(query: string): Observable<GeocodeResult[]> {
+    return this.searchLocations(query);
   }
 }

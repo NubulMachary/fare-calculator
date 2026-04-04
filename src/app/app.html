@@ -199,8 +199,9 @@
                 <input
                   id="distance"
                   type="number"
-                  [(ngModel)]="distance"
-                  (ngModelChange)="calculatePrice()"
+                  [ngModel]="distance()"
+                  [ngModelOptions]="{standalone: true}"
+                  (ngModelChange)="distance.set($event); calculatePrice()"
                   name="distance"
                   min="0"
                   step="0.1"
@@ -209,12 +210,37 @@
                 />
                 <button
                   type="button"
-                  (click)="toggleMapModal()"
+                  (click)="openMapFor(null)"
                   title="Calculate distance using map"
                   class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition duration-200 flex items-center gap-2"
                 >
                   📍 Map
                 </button>
+              </div>
+            </div>
+
+            <!-- Dynamic Stops (multiple distances) -->
+            <div class="space-y-2 mt-4">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-semibold text-gray-700">Stops (multiple distances)</label>
+                <button type="button" (click)="addStop()" class="text-sm text-indigo-600">+ Add Stop</button>
+              </div>
+              <div class="space-y-2">
+                <div *ngFor="let stop of stops(); let i = index" class="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    [ngModel]="stops()[i].distance"
+                    [ngModelOptions]="{standalone: true}"
+                    (ngModelChange)="updateStopDistance(i, $event)"
+                    placeholder="Distance for stop"
+                    min="0"
+                    step="0.1"
+                    class="flex-1 px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <button type="button" (click)="openMapFor(i)" class="px-3 py-2 bg-indigo-600 text-white rounded">📍</button>
+                  <button type="button" (click)="removeStop(i)" class="px-3 py-2 bg-gray-200 text-gray-700 rounded">✕</button>
+                </div>
+                <p *ngIf="stops().length > 0" class="text-sm text-gray-600 mt-2">Total distance from stops: {{ stops().reduce((s, l) => s + (toNumber(l.distance) || 0), 0) | number:'1.2-2' }} km</p>
               </div>
             </div>
 
@@ -367,7 +393,7 @@
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div class="bg-blue-50 p-4 rounded-lg">
                 <p class="text-sm text-gray-600">Fuel Cost</p>
-                <p class="text-2xl font-bold text-blue-600">₹ {{ ((toNumber(distance()) / toNumber(mileage())) * toNumber(fuelPrice())) | number:'1.2-2' }}</p>
+                <p class="text-2xl font-bold text-blue-600">₹ {{ ((totalDistance() / toNumber(mileage())) * toNumber(fuelPrice())) | number:'1.2-2' }}</p>
               </div>
               <div class="bg-purple-50 p-4 rounded-lg">
                 <p class="text-sm text-gray-600">Driver Expense</p>
@@ -446,7 +472,7 @@
                     <p class="text-sm text-gray-600" *ngIf="isAboveStandard()">
                       <span class="font-semibold text-red-600">↑ Above Standard</span>
                     </p>
-                    <p class="text-sm text-gray-600" *ngIf="!isAboveStandard() && toNumber(distance()) > 0">
+                    <p class="text-sm text-gray-600" *ngIf="!isAboveStandard() && totalDistance() > 0">
                       <span class="font-semibold text-green-600">↓ Below Standard</span>
                     </p>
                     <p class="text-2xl font-bold" [ngClass]="isAboveStandard() ? 'text-red-600' : 'text-green-600'">
@@ -542,7 +568,7 @@
               <li>✓ Cost per km: <strong>₹{{ costPerKm() | number:'1.2-2' }}</strong></li>
               <li>✓ Profit margin: <strong>{{ profitMarginPercent() | number:'1.1-2' }}%</strong></li>
               <li *ngIf="isAboveStandard()">⚠ Rate is <strong>₹{{ costVsStandard() | number:'1.2-2' }} above</strong> standard</li>
-              <li *ngIf="!isAboveStandard() && toNumber(distance()) > 0">✓ Rate is <strong>₹{{ (costVsStandard() * -1) | number:'1.2-2' }} below</strong> standard</li>
+              <li *ngIf="!isAboveStandard() && totalDistance() > 0">✓ Rate is <strong>₹{{ (costVsStandard() * -1) | number:'1.2-2' }} below</strong> standard</li>
               <li>✓ Fuel efficiency: <strong>{{ toNumber(mileage()) }} km/l</strong></li>
             </ul>
           </div>
@@ -558,7 +584,7 @@
 </main>
 
 <!-- Map Modal -->
-<div *ngIf="showMapModal()" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+<div *ngIf="showMapModal() !== null" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
   <div class="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
     <!-- Modal Header -->
     <div class="flex items-center justify-between p-6 border-b border-gray-200">
@@ -572,8 +598,8 @@
     </div>
 
     <!-- Modal Body -->
-    <div class="flex-1 overflow-auto p-6">
-      <app-map></app-map>
+    <div class="flex-1 overflow-y-auto p-4">
+  <app-map [stopIndex]="showMapModal()" [mapState]="getCurrentMapState()" (mapStateChange)="onMapStateChange($event)"></app-map>
     </div>
 
     <!-- Modal Footer -->
@@ -581,10 +607,10 @@
       <button
         type="button"
         (click)="applyDistanceFromMap()"
-        [disabled]="distanceService.calculatedDistance() === 0"
+        [disabled]="!getCurrentMapState() || getCurrentMapState()!.distance === 0"
         class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-3 px-4 rounded-lg transition duration-200"
       >
-        Apply Distance ({{ distanceService.calculatedDistance() | number:'1.2-2' }} km)
+        Apply Distance ({{ (getCurrentMapState()?.distance ?? 0) | number:'1.2-2' }} km)
       </button>
       <button
         type="button"

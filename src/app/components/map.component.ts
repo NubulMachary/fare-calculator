@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, PLATFORM_ID, Inject, ElementRef, ViewChild, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, PLATFORM_ID, Inject, ElementRef, ViewChild, ChangeDetectorRef, Input, Output, EventEmitter, SimpleChanges, OnChanges, signal, AfterViewInit } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -15,444 +15,488 @@ let L: any;
     standalone: true,
     imports: [CommonModule, FormsModule],
     template: `
-    <div class="map-container" *ngIf="isBrowser && mapVisible">
-    
-      <!-- Controls and info above the map -->
-      <div class="controls-top">
-        <div class="search-row p-2">
-          <div class="search-inputs">
-            <input
-              type="text"
-              #originInput
-              placeholder="Search Origin"
-              [(ngModel)]="searchOrigin"
-              (input)="onOriginSearch($event)"
-              class="search-input"
-              title="Type location name or address for Point A"
-            />
-            <ul *ngIf="showOriginResults" class="search-results">
-              <li *ngIf="originLoading" class="search-result-item">Searching...</li>
-              <li *ngIf="!originLoading && originSearchResults.length === 0" class="search-result-item">No results found</li>
-              <li *ngFor="let result of originSearchResults" (click)="selectOrigin(result)" class="search-result-item">
-                <strong>{{ result.name }}</strong>
-                <small *ngIf="result.address">{{ result.address }}</small>
-              </li>
-            </ul>
-          </div>
+    <div class="map-wrapper">
 
-          <div class="search-inputs">
-            <input
-              type="text"
-              #destinationInput
-              placeholder="Search Destination"
-              [(ngModel)]="searchDestination"
-              (input)="onDestinationSearch($event)"
-              class="search-input"
-              title="Type location name or address for Point B"
-            />
-            <ul *ngIf="showDestinationResults" class="search-results">
-              <li *ngIf="destinationLoading" class="search-result-item">Searching...</li>
-              <li *ngIf="!destinationLoading && destinationSearchResults.length === 0" class="search-result-item">No results found</li>
-              <li *ngFor="let result of destinationSearchResults" (click)="selectDestination(result)" class="search-result-item">
-                <strong>{{ result.name }}</strong>
-                <small *ngIf="result.address">{{ result.address }}</small>
-              </li>
-            </ul>
-          </div>
-           <!-- Round-trip toggle -->
-        <div class="round-trip-inline" style="margin-top:0.5rem">
-          <label class="round-trip-label">
-            <input
-              type="checkbox"
-              class="round-trip-checkbox"
-              [checked]="distanceService.isRoundTrip()"
-              (change)="distanceService.toggleRoundTrip()"
-              title="Double the distance for a round trip"
-            />
-            <span class="round-trip-text">Round Trip(2x distance)</span>
-          </label>
-        </div>
-        </div>
-
-        <div class="from-to-row p-2" style="display: flex; flex-wrap: wrap;" *ngIf="distanceService.pointA() || distanceService.pointB()">
-        <div style="width: 300px;"> 
-                <div class="from-to-item">
-                    <p class="label"><strong>From</strong>
-                        <span class="value" *ngIf="distanceService.pointA()">{{ distanceService.pointA()!.lat.toFixed(4) }}, {{ distanceService.pointA()!.lng.toFixed(4) }}</span>
-                    </p>
-                    <p class="value empty" *ngIf="!distanceService.pointA()">Not selected</p>
-                </div>
-                <div class="from-to-item">
-                    <p class="label"><strong>To</strong>
-                        <span class="value" *ngIf="distanceService.pointB()">{{ distanceService.pointB()!.lat.toFixed(4) }}, {{ distanceService.pointB()!.lng.toFixed(4) }}</span>
-                    </p>
-                    <p class="value empty" *ngIf="!distanceService.pointB()">Not selected</p>
-                </div>
-        </div>
-          <div class="from-to-item center">
-            <p class="label"><strong>Distance:</strong>
-            <span class="value distance-large">{{ distanceService.calculatedDistance() | number:'1.2-2' }} km</span>
-            <span class="value distance-sub">{{ distanceService.baseDistance() ? (distanceService.baseDistance() | number:'1.2-2') + ' km one-way' : '' }}</span>
-        </p>
-          </div>
-          
-        </div>
-        
+      <!-- ── Loading state ── -->
+      <div *ngIf="!mapReady" class="map-loading">
+        <span class="map-loading-spinner"></span>
+        <p>Loading map…</p>
       </div>
 
-      <!-- Map Container -->
-      <div id="map" class="map"></div>
+      <!-- ── Top: search inputs + round-trip toggle ── -->
+      <div class="search-panel" [class.ready]="mapReady">
+        <div class="search-row">
+          <!-- Origin -->
+          <div class="search-field">
+            <label class="search-label">📍 From</label>
+            <div class="search-input-wrap">
+              <input
+                type="text"
+                #originInput
+                placeholder="Search origin…"
+                [(ngModel)]="searchOrigin"
+                (input)="onOriginSearch($event)"
+                class="search-input"
+              />
+              <ul *ngIf="showOriginResults" class="search-results">
+                <li *ngIf="originLoading" class="search-result-item loading">Searching…</li>
+                <li *ngIf="!originLoading && originSearchResults.length === 0" class="search-result-item empty">No results</li>
+                <li *ngFor="let result of originSearchResults" (click)="selectOrigin(result)" class="search-result-item">
+                  <span class="result-name">{{ result.name }}</span>
+                  <span *ngIf="result.address" class="result-addr">{{ result.address }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
 
-      <!-- Controls removed for mobile: distance is calculated automatically when both points are set -->
+          <!-- Destination -->
+          <div class="search-field">
+            <label class="search-label">🏁 To</label>
+            <div class="search-input-wrap">
+              <input
+                type="text"
+                #destinationInput
+                placeholder="Search destination…"
+                [(ngModel)]="searchDestination"
+                (input)="onDestinationSearch($event)"
+                class="search-input"
+              />
+              <ul *ngIf="showDestinationResults" class="search-results">
+                <li *ngIf="destinationLoading" class="search-result-item loading">Searching…</li>
+                <li *ngIf="!destinationLoading && destinationSearchResults.length === 0" class="search-result-item empty">No results</li>
+                <li *ngFor="let result of destinationSearchResults" (click)="selectDestination(result)" class="search-result-item">
+                  <span class="result-name">{{ result.name }}</span>
+                  <span *ngIf="result.address" class="result-addr">{{ result.address }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
 
-      <!-- Error Message -->
-      <div *ngIf="distanceService.errorMessage()" class="error-message">
-        <span class="error-icon">⚠</span>
-        {{ distanceService.errorMessage() }}
+          <!-- Round-trip -->
+          <div class="roundtrip-field">
+            <label class="roundtrip-label">
+              <input
+                type="checkbox"
+                [checked]="localIsRoundTrip()"
+                (change)="toggleRoundTrip()"
+              />
+              <span>Round Trip <small>(2×)</small></span>
+            </label>
+          </div>
+        </div>
       </div>
-    </div>
-    <div *ngIf="!isBrowser || !mapVisible" class="map-container">
-      <div class="p-8 text-center text-gray-600">
-        <p class="mb-3">Map is not available while server rendering. The interactive map loads in the browser.</p>
-        <button *ngIf="isBrowser && !mapVisible" (click)="loadMap()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg">Load interactive map</button>
+
+      <!-- ── Map canvas ── -->
+      <div class="map-canvas-wrap">
+        <div #mapContainer [id]="mapId" class="map-leaflet"></div>
+
+        <!-- ── Info overlay — shown once both points are selected ── -->
+        <div class="info-overlay" *ngIf="localPointA() && localPointB()">
+          <div class="info-card">
+            <div class="info-row">
+              <div class="info-point origin">
+                <span class="info-dot origin-dot">A</span>
+                <div class="info-text">
+                  <span class="info-label">From</span>
+                  <span class="info-name">{{ searchOrigin || 'Point A' }}</span>
+                  <span class="info-coords">{{ localPointA()!.lat.toFixed(4) }}, {{ localPointA()!.lng.toFixed(4) }}</span>
+                </div>
+              </div>
+              <div class="info-divider">→</div>
+              <div class="info-point dest">
+                <span class="info-dot dest-dot">B</span>
+                <div class="info-text">
+                  <span class="info-label">To</span>
+                  <span class="info-name">{{ searchDestination || 'Point B' }}</span>
+                  <span class="info-coords">{{ localPointB()!.lat.toFixed(4) }}, {{ localPointB()!.lng.toFixed(4) }}</span>
+                </div>
+              </div>
+              <div class="info-distance">
+                <span class="dist-label">Distance</span>
+                <span class="dist-value" *ngIf="localCalculatedDistance() > 0">
+                  {{ localCalculatedDistance() | number:'1.1-1' }} km
+                </span>
+                <span class="dist-value calculating" *ngIf="localIsLoading()">Calculating…</span>
+                <span class="dist-value pending" *ngIf="!localIsLoading() && localCalculatedDistance() === 0">—</span>
+                <span class="dist-oneway" *ngIf="localBaseDistance() > 0 && localIsRoundTrip()">
+                  {{ localBaseDistance() | number:'1.1-1' }} km one-way
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hint shown before any point is selected -->
+        <div class="map-hint" *ngIf="mapReady && !localPointA()">
+          Click the map or search above to set your route
+        </div>
+      </div>
+
+      <!-- ── Error ── -->
+      <div *ngIf="localErrorMessage()" class="map-error">
+        <span>⚠</span> {{ localErrorMessage() }}
       </div>
     </div>
   `,
     styles: [`
-    .map-container {
+
+    /* ── Outer wrapper ── */
+    .map-wrapper {
       display: flex;
       flex-direction: column;
-      position: relative;
-      height: 100%;
+      height: 580px;
       border-radius: 12px;
       overflow: hidden;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      background: white;
+      background: #f7f8fa;
+      font-family: inherit;
     }
 
-    .map-header {
-      padding: 1rem;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-    }
-
-    .map-header.compact {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.75rem 1rem;
-    }
-
-    .map-actions { display:flex; align-items:center; gap:0.5rem }
-
-    .round-trip-inline { display:flex; gap:0.5rem; align-items:center; font-size:0.9rem }
-
-    .map-title {
-      margin: 0 0 0.5rem 0;
-      font-size: 1.25rem;
-      font-weight: 600;
-    }
-
-    .map-instructions {
+    /* ── Loading overlay ── */
+    .map-loading {
+      flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 0.25rem;
-      font-size: 0.875rem;
-    }
-
-    .instruction-text {
-      margin: 0;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .step {
-      display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 1.5rem;
-      height: 1.5rem;
-      background: rgba(255, 255, 255, 0.3);
+      color: #888;
+      gap: 0.75rem;
+      font-size: 0.9rem;
+    }
+    .map-loading-spinner {
+      width: 32px; height: 32px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #667eea;
       border-radius: 50%;
-      font-size: 0.75rem;
-      font-weight: 600;
+      animation: spin 0.8s linear infinite;
     }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    #map {
-      flex: 1;
-      min-height: 400px;
-      background: #f0f0f0;
+    /* ── Search panel ── */
+    .search-panel {
+      padding: 0.65rem 0.75rem 0.5rem;
+      background: #fff;
+      border-bottom: 1px solid #e5e7eb;
+      flex-shrink: 0;
+      opacity: 0.5;
+      pointer-events: none;
+      transition: opacity 0.3s;
     }
-
-    .overlay-controls {
-      position: absolute;
-      top: 0.75rem;
-      left: 0.75rem;
-      right: 0.75rem;
-      z-index: 1100;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
+    .search-panel.ready {
+      opacity: 1;
       pointer-events: auto;
     }
 
-    .search-row { display:flex; gap:0.5rem; flex-direction:column }
-
-    .search-inputs { position: relative }
-
-    .search-input { width:100%; padding:0.6rem 0.75rem; border-radius:8px; border:1px solid rgba(0,0,0,0.12); }
-
-    .search-results { position:absolute; left:0; right:0; top:110%; background:white; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12); max-height:240px; overflow:auto; z-index:1110; }
-
-    .search-result-item { padding:0.5rem 0.75rem; border-bottom:1px solid #f0f0f0; cursor:pointer }
-
-    .search-result-item small { display:block; color:#666; margin-top:0.25rem }
-
-    .bottom-info {
-      position: absolute;
-      left: 0.5rem;
-      right: 0.5rem;
-      bottom: 0.75rem;
-      z-index: 1100;
-      background: rgba(255,255,255,0.96);
-      padding: 0.5rem 0.75rem;
-      border-radius: 10px;
+    .search-row {
       display: flex;
-      gap: 0.75rem;
-      align-items: center;
-      justify-content: space-between;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-    }
-
-    .bottom-left, .bottom-right { display:flex; flex-direction:column; gap:0.25rem }
-    .bottom-middle { text-align:center }
-    .distance-large { font-weight:700; font-size:1.1rem }
-    .distance-sub { font-size:0.75rem; color:#666 }
-
-    /* Responsive: horizontal search on wider screens */
-    @media(min-width: 700px) {
-      .search-row { flex-direction:row }
-      .overlay-controls { width: auto; left: 1rem; right: auto; max-width:900px }
-      .bottom-info { left: auto; right: 1rem; width:360px; bottom:1rem; flex-direction:column; align-items:flex-end }
-    }
-
-    .route-info {
-      padding: 1rem;
-      background: #f8f9fa;
-      border-top: 1px solid #e0e0e0;
-    }
-
-    .info-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
-    }
-
-    .info-item {
-      display: flex;
-      flex-direction: column;
-      padding: 0.75rem;
-      background: white;
-      border-radius: 8px;
-      border: 1px solid #e0e0e0;
-    }
-
-    .info-label {
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: #666;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 0.25rem;
-    }
-
-    .info-value {
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: #333;
-      font-family: 'Courier New', monospace;
-    }
-
-    .info-value.empty {
-      color: #999;
-      font-style: italic;
-    }
-
-    .round-trip-label {
-      display: flex;
-      align-items: center;
       gap: 0.5rem;
-      cursor: pointer;
-      user-select: none;
-    }
-
-    .round-trip-checkbox {
-      width: 1.1rem;
-      height: 1.1rem;
-      cursor: pointer;
-      accent-color: #667eea;
-    }
-
-    .round-trip-text {
-      font-weight: 500;
-      color: #333;
-    }
-
-    .map-controls {
-      display: flex;
-      gap: 0.75rem;
-      padding: 1rem;
-      background: white;
-      border-top: 1px solid #e0e0e0;
-    }
-
-    /* Overlay controls placed on top-left of the map */
-    .overlay-controls {
-      position: absolute;
-      top: 1rem;
-      left: 1rem;
-      z-index: 1100;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      background: rgba(255,255,255,0.95);
-      padding: 0.75rem;
-      border-radius: 8px;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.12);
-      max-width: 400px;
-    }
-
-    .search-inputs {
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-    }
-
-    .search-input {
-      padding: 0.5rem 0.75rem;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 0.875rem;
-      font-family: inherit;
-      box-sizing: border-box;
-      transition: border-color 0.2s;
-    }
-
-    .search-input:focus {
-      outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
-    }
-
-    .search-results {
-      list-style: none;
-      margin: 0;
-      padding: 0.25rem 0;
-      background: white;
-      border: 1px solid #ddd;
-      border-top: none;
-      border-radius: 0 0 4px 4px;
-      max-height: 200px;
-      overflow-y: auto;
-    }
-
-    .search-result-item {
-      padding: 0.5rem 0.75rem;
-      cursor: pointer;
-      transition: background-color 0.15s;
-      border-bottom: 1px solid #f0f0f0;
-    }
-
-    .search-result-item:hover {
-      background-color: #f0f0f0;
-    }
-
-    .search-result-item strong {
-      display: block;
-      font-size: 0.875rem;
-      color: #333;
-    }
-
-    .search-result-item small {
-      display: block;
-      font-size: 0.75rem;
-      color: #666;
-      margin-top: 0.125rem;
-    }
-
-    .button-group {
-      display: flex;
-      gap: 0.25rem;
+      align-items: flex-start;
       flex-wrap: wrap;
     }
 
-    .btn-small {
+    .search-field {
       flex: 1;
-      min-width: 80px;
-      padding: 0.5rem 0.75rem;
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
+      min-width: 160px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      position: relative;
     }
 
-    .btn {
-      flex: 1;
-      padding: 0.75rem 1rem;
-      border: none;
-      border-radius: 6px;
+    .search-label {
+      font-size: 0.72rem;
       font-weight: 600;
-      font-size: 0.875rem;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .search-input-wrap { position: relative; }
+
+    .search-input {
+      width: 100%;
+      padding: 0.45rem 0.65rem;
+      border: 1.5px solid #d1d5db;
+      border-radius: 7px;
+      font-size: 0.85rem;
+      font-family: inherit;
+      box-sizing: border-box;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      background: #fff;
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102,126,234,0.12);
+    }
+
+    .search-results {
+      position: absolute;
+      top: calc(100% + 3px);
+      left: 0; right: 0;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      max-height: 220px;
+      overflow-y: auto;
+      z-index: 1200;
+      list-style: none;
+      margin: 0; padding: 0.25rem 0;
+    }
+
+    .search-result-item {
+      padding: 0.45rem 0.75rem;
       cursor: pointer;
-      transition: all 0.3s ease;
+      border-bottom: 1px solid #f4f4f4;
+      transition: background 0.15s;
+    }
+    .search-result-item:hover { background: #f0f4ff; }
+    .search-result-item.loading,
+    .search-result-item.empty { color: #999; font-style: italic; cursor: default; }
+    .result-name { display: block; font-size: 0.85rem; font-weight: 500; color: #222; }
+    .result-addr { display: block; font-size: 0.75rem; color: #777; margin-top: 2px; }
+
+    /* Round-trip toggle */
+    .roundtrip-field {
+      flex-shrink: 0;
+      align-self: flex-end;
+      padding-bottom: 0.1rem;
+    }
+    .roundtrip-label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      cursor: pointer;
+      user-select: none;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: #444;
+      white-space: nowrap;
+    }
+    .roundtrip-label input[type=checkbox] {
+      width: 1rem; height: 1rem;
+      accent-color: #667eea;
+      cursor: pointer;
+    }
+    .roundtrip-label small { color: #888; }
+
+    /* ── Map canvas wrapper ── */
+    .map-canvas-wrap {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+    }
+
+    /* .map-leaflet — Leaflet container.
+       Uses class (not #id) because Angular scoping breaks dynamic ID selectors. */
+    .map-leaflet {
+      position: absolute;
+      inset: 0;
+      background: #e8ecef;
+    }
+
+    /* ── Map hint ── */
+    .map-hint {
+      position: absolute;
+      bottom: 2.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 900;
+      background: rgba(255,255,255,0.88);
+      padding: 0.35rem 0.9rem;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      color: #555;
+      pointer-events: none;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    /* ── Info overlay — bottom of map ── */
+    .info-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0; right: 0;
+      z-index: 1000;
+      padding: 0 0.6rem 0.6rem;
+    }
+
+    .info-card {
+      background: rgba(255, 255, 255, 0.97);
+      border-radius: 10px;
+      box-shadow: 0 -2px 16px rgba(0,0,0,0.12), 0 4px 16px rgba(0,0,0,0.08);
+      padding: 0.65rem 0.85rem;
+      backdrop-filter: blur(4px);
+    }
+
+    .info-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    /* Point A / B blocks */
+    .info-point {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .info-dot {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      color: #fff;
+    }
+    .origin-dot { background: #22c55e; }
+    .dest-dot   { background: #ef4444; }
+
+    .info-text {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .info-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      line-height: 1;
+    }
+
+    .info-name {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #1a1a2e;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 160px;
+    }
+
+    .info-coords {
+      font-size: 0.7rem;
+      color: #888;
+      font-family: 'Courier New', monospace;
+    }
+
+    .info-divider {
+      font-size: 1.1rem;
+      color: #aaa;
+      flex-shrink: 0;
+    }
+
+    /* Distance block */
+    .info-distance {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      flex-shrink: 0;
+      min-width: 80px;
+      text-align: right;
+    }
+
+    .dist-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: #888;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
-    .btn-primary {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
+    .dist-value {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #1a1a2e;
+      line-height: 1.2;
+    }
+    .dist-value.calculating { font-size: 0.8rem; color: #888; font-style: italic; font-weight: 400; }
+    .dist-value.pending { color: #ccc; }
+
+    .dist-oneway {
+      font-size: 0.7rem;
+      color: #888;
     }
 
-    .btn-primary:hover:not(.btn-disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-    }
-
-    .btn-secondary {
-      background: #e0e0e0;
-      color: #333;
-    }
-
-    .btn-secondary:hover {
-      background: #d0d0d0;
-    }
-
-    .btn-disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none !important;
-      box-shadow: none !important;
-    }
-
-    .error-message {
-      padding: 0.75rem 1rem;
-      background: #fee;
-      color: #c00;
-      border-top: 1px solid #fcc;
+    /* ── Error bar ── */
+    .map-error {
+      flex-shrink: 0;
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      font-size: 0.875rem;
+      padding: 0.5rem 0.85rem;
+      background: #fff1f1;
+      color: #c00;
+      border-top: 1px solid #fcc;
+      font-size: 0.82rem;
     }
 
-    .error-icon {
-      font-size: 1.25rem;
-    }
   `]
 })
-export class MapComponent implements OnInit, OnDestroy {
+export class MapComponent implements OnInit, OnDestroy, OnChanges, AfterViewInit {
+  @Input() stopIndex: number | null = null;
+  @Input() mapState: { origin: any, destination: any, distance: number, isRoundTrip?: boolean, pointA?: { lat: number; lng: number } | null, pointB?: { lat: number; lng: number } | null } | null = null;
+  @Output() mapStateChange = new EventEmitter<{ origin: any, destination: any, distance: number, isRoundTrip: boolean, pointA: { lat: number; lng: number } | null, pointB: { lat: number; lng: number } | null }>();
+
+  // ── Per-instance isolated state (replaces shared DistanceService signals) ──
+  localPointA = signal<{ lat: number; lng: number } | null>(null);
+  localPointB = signal<{ lat: number; lng: number } | null>(null);
+  localCalculatedDistance = signal<number>(0);
+  localBaseDistance = signal<number>(0);
+  localIsRoundTrip = signal<boolean>(true);
+  localErrorMessage = signal<string>('');
+  localIsLoading = signal<boolean>(false);
+
+  /** Unique DOM id so multiple map instances don't clash on the same "map" element */
+  readonly mapId: string;
+
+  toggleRoundTrip(): void {
+    const newVal = !this.localIsRoundTrip();
+    this.localIsRoundTrip.set(newVal);
+    const base = this.localBaseDistance();
+    if (base > 0) {
+      this.localCalculatedDistance.set(
+        Math.round((newVal ? base * 2 : base) * 100) / 100
+      );
+      this.emitMapState();
+    }
+  }
+
+  /** Returns the final (possibly 2×) distance for this instance */
+  getFinalDistance(): number {
+    return this.localCalculatedDistance();
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['mapState'] && this.mapState) {
+      // Restore search text and distance when modal re-opens with saved state
+      this.searchOrigin = this.mapState.origin || '';
+      this.searchDestination = this.mapState.destination || '';
+      // Restore round-trip flag first so base-distance derivation below is correct
+      if (this.mapState.isRoundTrip !== undefined) {
+        this.localIsRoundTrip.set(this.mapState.isRoundTrip);
+      }
+      if (this.mapState.distance > 0) {
+        this.localCalculatedDistance.set(this.mapState.distance);
+        // Back-derive base (one-way) using the restored round-trip flag
+        this.localBaseDistance.set(
+          this.localIsRoundTrip() ? this.mapState.distance / 2 : this.mapState.distance
+        );
+      }
+      // Restore map coordinates so info panel reflects saved positions immediately
+      if (this.mapState.pointA) this.localPointA.set(this.mapState.pointA);
+      if (this.mapState.pointB) this.localPointB.set(this.mapState.pointB);
+    }
+  }
     private map!: any;
     private pointAMarker: any | null = null;
     private pointBMarker: any | null = null;
@@ -469,8 +513,8 @@ export class MapComponent implements OnInit, OnDestroy {
     isBrowser: boolean;
 
     // Search input properties
-    searchOrigin = '';
-    searchDestination = '';
+  searchOrigin = '';
+  searchDestination = '';
   originSearchResults: GeocodeResult[] = [];
   destinationSearchResults: GeocodeResult[] = [];
   showOriginResults = false;
@@ -480,10 +524,12 @@ export class MapComponent implements OnInit, OnDestroy {
   destinationLoading = false;
     // API key input for quick local setup (not persisted to repo)
     apiKeyInput = '';
+  /** True once Leaflet has successfully attached to the DOM container */
+  mapReady = false;
+
+  @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef<HTMLDivElement>;
   @ViewChild('originInput', { static: false }) originInput?: ElementRef<HTMLInputElement>;
   @ViewChild('destinationInput', { static: false }) destinationInput?: ElementRef<HTMLInputElement>;
-
-  mapVisible = false; // controls client-side map rendering
 
   constructor(
     public distanceService: DistanceService,
@@ -491,6 +537,8 @@ export class MapComponent implements OnInit, OnDestroy {
     @Inject(PLATFORM_ID) platformId: Object
   ) {
     this.isBrowser = isPlatformBrowser(platformId);
+    // Each instance gets a unique map container id to avoid Leaflet id collisions
+    this.mapId = 'map-' + Math.random().toString(36).slice(2, 9);
     // Only read API key in browser
     if (this.isBrowser) {
       this.apiKeyInput = (window as any).VITE_OPENROUTESERVICE_KEY || localStorage.getItem('OPENROUTESERVICE_API_KEY') || '';
@@ -498,22 +546,42 @@ export class MapComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    // If running in browser, show the map container and initialize map.
-    // We keep the server-side render showing a fallback message.
-    if (this.isBrowser) {
-      this.mapVisible = true;
-      // initialize after microtask to ensure DOM exists
-      setTimeout(() => this.initializeMap(), 0);
+    // Restore search text, distance, and coordinates from saved state when modal re-opens
+    if (this.mapState) {
+      this.searchOrigin = this.mapState.origin || '';
+      this.searchDestination = this.mapState.destination || '';
+      // Restore round-trip flag first so base-distance derivation below is correct
+      if (this.mapState.isRoundTrip !== undefined) {
+        this.localIsRoundTrip.set(this.mapState.isRoundTrip);
+      }
+      if (this.mapState.distance > 0) {
+        this.localCalculatedDistance.set(this.mapState.distance);
+        // Back-derive base (one-way) using the restored round-trip flag
+        this.localBaseDistance.set(
+          this.localIsRoundTrip() ? this.mapState.distance / 2 : this.mapState.distance
+        );
+      }
+      // Restore coordinates so the info panel and markers reflect saved positions
+      if (this.mapState.pointA) this.localPointA.set(this.mapState.pointA);
+      if (this.mapState.pointB) this.localPointB.set(this.mapState.pointB);
     }
   }
 
-  // Called from the fallback button to load the interactive map on demand
+  ngAfterViewInit(): void {
+    console.log('[Map] ngAfterViewInit — isBrowser:', this.isBrowser, '| mapId:', this.mapId);
+    if (!this.isBrowser) {
+      console.log('[Map] Skipping init — not a browser environment (SSR)');
+      return;
+    }
+    this.distanceService.ensureApiKeyReady();
+    // Use rAF so the browser has painted the container at full size before Leaflet reads dimensions
+    requestAnimationFrame(() => this.initializeMap());
+  }
+
+  // loadMap() kept for any future manual trigger but delegates to initializeMap
   loadMap(): void {
-    if (!this.isBrowser) return;
-    if (this.mapVisible && this.map) return;
-    this.mapVisible = true;
-    this.cdr.detectChanges();
-    setTimeout(() => this.initializeMap(), 0);
+    if (!this.isBrowser || this.map) return;
+    this.initializeMap();
   }
 
     ngOnDestroy(): void {
@@ -523,98 +591,133 @@ export class MapComponent implements OnInit, OnDestroy {
     }
 
     private async initializeMap(): Promise<void> {
-    // Dynamically import leaflet and its CSS to avoid SSR issues.
-    // Both imports happen only in the browser when this method is called.
-    if (this.isBrowser) {
-      try {
-        // Inject Leaflet CSS at runtime via a <link> tag. This avoids
-        // importing the CSS module statically (which could pull Leaflet
-        // code into the SSR bundle). Use the CDN path to avoid bundling.
-        const href = 'https://unpkg.com/leaflet/dist/leaflet.css';
-        if (!document.querySelector(`link[href="${href}"]`)) {
-          const link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = href;
-          document.head.appendChild(link);
-        }
-      } catch (e) {
-        console.warn('Could not inject leaflet CSS dynamically:', e);
+    console.log('[Map] initializeMap() start — container el:', this.mapContainer?.nativeElement);
+
+    // ── 1. Inject Leaflet CSS ──────────────────────────────────────────────
+    try {
+      const href = 'https://unpkg.com/leaflet/dist/leaflet.css';
+      if (!document.querySelector(`link[href="${href}"]`)) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = href;
+        document.head.appendChild(link);
+        console.log('[Map] Leaflet CSS injected');
+      } else {
+        console.log('[Map] Leaflet CSS already present');
       }
+    } catch (e) {
+      console.warn('[Map] Could not inject Leaflet CSS:', e);
     }
 
-    // Dynamically import Leaflet library only at runtime (browser)
+    // ── 2. Import Leaflet ──────────────────────────────────────────────────
     if (!L) {
-      const leafletMod = await import('leaflet');
-      // Some bundlers expose the library under the `default` property.
-      L = (leafletMod && (leafletMod as any).default) ? (leafletMod as any).default : leafletMod;
+      console.log('[Map] Importing Leaflet module…');
+      try {
+        const leafletMod = await import('leaflet');
+        L = (leafletMod && (leafletMod as any).default) ? (leafletMod as any).default : leafletMod;
+        console.log('[Map] Leaflet imported — L.map available:', !!(L && L.map));
+      } catch (e) {
+        console.error('[Map] Failed to import Leaflet:', e);
+        this.localErrorMessage.set('Failed to load map library. Please refresh.');
+        return;
+      }
+    } else {
+      console.log('[Map] Leaflet already imported');
     }
 
-    // Defensive logging to help diagnose issues in different environments
+    // ── 3. Reveal the container BEFORE Leaflet measures it ─────────────────
+    // The loading overlay covers the map while mapReady=false.
+    // Set mapReady=true first so Angular shows the search panel, then let the browser
+    // paint before we call L.map().
+    this.mapReady = true;
+    this.cdr.detectChanges();
+    console.log('[Map] Container revealed (mapReady=true) — size:', this.mapContainer.nativeElement.offsetWidth, '×', this.mapContainer.nativeElement.offsetHeight);
+
+    // ── 4. Initialise Leaflet ──────────────────────────────────────────────
     try {
-      // Log minimal info (avoid printing huge objects in production)
-      // eslint-disable-next-line no-console
-      console.debug && console.debug('Leaflet module loaded:', {
-        hasMap: !!(L && L.map),
-        hasTileLayer: !!(L && L.tileLayer)
-      });
+      this.map = L.map(this.mapContainer.nativeElement).setView([20.5937, 78.9629], 5);
+      console.log('[Map] ✓ Leaflet map created successfully');
     } catch (err) {
-      // ignore logging errors
+      console.error('[Map] ✗ Failed to create Leaflet map:', err);
+      this.localErrorMessage.set('Failed to load map. Please try again.');
+      return;
     }
 
-    // Create map centered on India
-    try {
-      this.map = L.map('map').setView([20.5937, 78.9629], 5);
-    } catch (err) {
-      // Provide a helpful error message and include module introspection
-      // eslint-disable-next-line no-console
-      console.error('Failed to initialize Leaflet map. Leaflet module summary:', { L });
-      throw err;
+    // ── 5. Add OSM tile layer ──────────────────────────────────────────────
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19,
+      minZoom: 3
+    }).addTo(this.map);
+    console.log('[Map] Tile layer added');
+
+    // ── 6. Wire up click handler ───────────────────────────────────────────
+    this.map.on('click', (event: any) => {
+      this.onMapClick(event.latlng);
+    });
+    this.map.getContainer().style.cursor = 'crosshair';
+
+    // ── 7. Force size recalc after paint ───────────────────────────────────
+    // A second rAF ensures the container has its final CSS dimensions.
+    requestAnimationFrame(() => {
+      this.map.invalidateSize();
+      console.log('[Map] invalidateSize() called — final size:', this.mapContainer.nativeElement.offsetWidth, '×', this.mapContainer.nativeElement.offsetHeight);
+      // ── 8. Restore previously saved markers (if map was re-opened) ────────
+      this.restoreMarkersOnMap();
+    });
+  }
+
+  /** Re-place markers and route polyline when the map is re-opened with saved coordinates */
+  private restoreMarkersOnMap(): void {
+    const a = this.localPointA();
+    const b = this.localPointB();
+    if (!a && !b) return;
+
+    if (a) this.updatePointAMarker({ lat: a.lat, lng: a.lng });
+    if (b) this.updatePointBMarker({ lat: b.lat, lng: b.lng });
+
+    if (a && b) {
+      this.drawRoute();
+      // Fit the map to the restored route
+      if (this.routePath) {
+        this.map.fitBounds(this.routePath.getBounds(), { padding: [50, 50] });
+      }
+    } else if (a) {
+      this.map.setView([a.lat, a.lng], 10);
+    } else if (b) {
+      this.map.setView([b!.lat, b!.lng], 10);
     }
-
-        // Add OSM tiles
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors',
-            maxZoom: 19,
-            minZoom: 3
-        }).addTo(this.map);
-
-        // Add map click handler
-        this.map.on('click', (event: any) => {
-            this.onMapClick(event.latlng);
-        });
-
-        // Add custom cursor feedback
-        this.map.getContainer().style.cursor = 'crosshair';
-    }
+    console.log('[Map] Markers restored — A:', a, 'B:', b);
+  }
 
     private onMapClick(latlng: any): void {
         // Only respond when a selection mode is active
         // For mobile simplified UX: clicks set nearest unset point when not using search
         if (!this.selectionMode) {
             // If neither point set, set origin; if origin set and destination not, set destination
-            if (!this.distanceService.pointA()) {
-                this.distanceService.setPointA({ lat: latlng.lat, lng: latlng.lng });
+            if (!this.localPointA()) {
+                this.localPointA.set({ lat: latlng.lat, lng: latlng.lng });
                 this.updatePointAMarker(latlng);
-            } else if (!this.distanceService.pointB()) {
-                this.distanceService.setPointB({ lat: latlng.lat, lng: latlng.lng });
+            } else if (!this.localPointB()) {
+                this.localPointB.set({ lat: latlng.lat, lng: latlng.lng });
                 this.updatePointBMarker(latlng);
             } else {
                 // both set -> replace destination by default
-                this.distanceService.setPointB({ lat: latlng.lat, lng: latlng.lng });
+                this.localPointB.set({ lat: latlng.lat, lng: latlng.lng });
                 this.updatePointBMarker(latlng);
             }
         } else {
             if (this.selectionMode === 'origin') {
-                this.distanceService.setPointA({ lat: latlng.lat, lng: latlng.lng });
+                this.localPointA.set({ lat: latlng.lat, lng: latlng.lng });
                 this.updatePointAMarker(latlng);
             } else if (this.selectionMode === 'destination') {
-                this.distanceService.setPointB({ lat: latlng.lat, lng: latlng.lng });
+                this.localPointB.set({ lat: latlng.lat, lng: latlng.lng });
                 this.updatePointBMarker(latlng);
             }
         }
 
         // If both points are set, draw the route and calculate distance automatically
-        if (this.distanceService.pointA() && this.distanceService.pointB()) {
+        if (this.localPointA() && this.localPointB()) {
             this.drawRoute();
             this.triggerCalculateIfReady();
         }
@@ -633,6 +736,7 @@ export class MapComponent implements OnInit, OnDestroy {
             this.pointAMarker.setLatLng(latlng);
         } else {
             this.pointAMarker = L.marker(latlng, {
+                draggable: true,
                 icon: L.icon({
                     iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
                     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
@@ -642,6 +746,15 @@ export class MapComponent implements OnInit, OnDestroy {
                     shadowSize: [41, 41]
                 })
             }).addTo(this.map).bindPopup('<b>Point A (Origin)</b>');
+
+            this.pointAMarker.on('dragend', (e: any) => {
+                const pos = e.target.getLatLng();
+                this.localPointA.set({ lat: pos.lat, lng: pos.lng });
+                if (this.localPointA() && this.localPointB()) {
+                    this.drawRoute();
+                    this.triggerCalculateIfReady();
+                }
+            });
         }
     }
 
@@ -650,6 +763,7 @@ export class MapComponent implements OnInit, OnDestroy {
             this.pointBMarker.setLatLng(latlng);
         } else {
             this.pointBMarker = L.marker(latlng, {
+                draggable: true,
                 icon: L.icon({
                     iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
                     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
@@ -659,12 +773,21 @@ export class MapComponent implements OnInit, OnDestroy {
                     shadowSize: [41, 41]
                 })
             }).addTo(this.map).bindPopup('<b>Point B (Destination)</b>');
+
+            this.pointBMarker.on('dragend', (e: any) => {
+                const pos = e.target.getLatLng();
+                this.localPointB.set({ lat: pos.lat, lng: pos.lng });
+                if (this.localPointA() && this.localPointB()) {
+                    this.drawRoute();
+                    this.triggerCalculateIfReady();
+                }
+            });
         }
     }
 
     private drawRoute(): void {
-        const pointA = this.distanceService.pointA();
-        const pointB = this.distanceService.pointB();
+        const pointA = this.localPointA();
+        const pointB = this.localPointB();
 
         if (!pointA || !pointB) return;
 
@@ -689,25 +812,36 @@ export class MapComponent implements OnInit, OnDestroy {
     }
 
     canCalculate(): boolean {
-        return this.distanceService.pointA() !== null &&
-            this.distanceService.pointB() !== null &&
-            !this.distanceService.isLoading();
+        return this.localPointA() !== null &&
+            this.localPointB() !== null &&
+            !this.localIsLoading();
     }
 
     calculateRoute(): void {
-        this.distanceService.calculateDistance().subscribe({
+        const a = this.localPointA();
+        const b = this.localPointB();
+        if (!a || !b) return;
+        this.distanceService.calculateDistanceFor(a, b).subscribe({
             next: (result) => {
-                const processed = this.distanceService.processDistanceResult(result);
-                console.log('Route calculated:', processed);
+                this.localBaseDistance.set(result.distanceKm);
+                const displayed = this.localIsRoundTrip() ? result.distanceKm * 2 : result.distanceKm;
+                this.localCalculatedDistance.set(Math.round(displayed * 100) / 100);
+                this.localErrorMessage.set('');
+                console.log('Route calculated:', result);
             },
             error: (error) => {
+                this.localErrorMessage.set(error.message || 'Failed to calculate route');
                 console.error('Error calculating route:', error);
             }
         });
     }
 
     resetRoute(): void {
-        this.distanceService.resetDistance();
+        this.localPointA.set(null);
+        this.localPointB.set(null);
+        this.localCalculatedDistance.set(0);
+        this.localBaseDistance.set(0);
+        this.localErrorMessage.set('');
 
         // Reset markers
         if (this.pointAMarker) {
@@ -729,9 +863,11 @@ export class MapComponent implements OnInit, OnDestroy {
     /**
      * Handle origin location search with debounce
      */
-    onOriginSearch(event: Event): void {
-        clearTimeout(this.originSearchTimeout);
-        const query = ((event.target as HTMLInputElement).value || '').trim();
+  onOriginSearch(event: Event): void {
+  clearTimeout(this.originSearchTimeout);
+  const query = ((event.target as HTMLInputElement).value || '').trim();
+  // Persist the last search value
+  if (this.isBrowser) localStorage.setItem('MAP_LAST_ORIGIN', query);
 
         if (query.length < 2) {
           this.originLoading = false;
@@ -791,6 +927,8 @@ export class MapComponent implements OnInit, OnDestroy {
     onDestinationSearch(event: Event): void {
         clearTimeout(this.destinationSearchTimeout);
         const query = ((event.target as HTMLInputElement).value || '').trim();
+    // Persist the last search value
+    if (this.isBrowser) localStorage.setItem('MAP_LAST_DEST', query);
 
         if (query.length < 2) {
           this.destinationLoading = false;
@@ -843,46 +981,68 @@ export class MapComponent implements OnInit, OnDestroy {
     /**
      * Select origin from search results
      */
-    selectOrigin(result: GeocodeResult): void {
-        this.distanceService.setPointA(result.coordinates);
-        this.updatePointAMarker({ lat: result.coordinates.lat, lng: result.coordinates.lng });
-        this.searchOrigin = result.name;
-        this.showOriginResults = false;
+  selectOrigin(result: GeocodeResult): void {
+    this.localPointA.set(result.coordinates);
+    this.updatePointAMarker({ lat: result.coordinates.lat, lng: result.coordinates.lng });
+    this.searchOrigin = result.name;
+    this.showOriginResults = false;
 
-        // If both points set, draw route
-        if (this.distanceService.pointA() && this.distanceService.pointB()) {
-            this.drawRoute();
-            this.triggerCalculateIfReady();
-        }
+    // If both points set, draw route and calculate
+    if (this.localPointA() && this.localPointB()) {
+      this.drawRoute();
+      this.triggerCalculateIfReady();
     }
+  }
 
     /**
      * Select destination from search results
      */
-    selectDestination(result: GeocodeResult): void {
-        this.distanceService.setPointB(result.coordinates);
-        this.updatePointBMarker({ lat: result.coordinates.lat, lng: result.coordinates.lng });
-        this.searchDestination = result.name;
-        this.showDestinationResults = false;
+  selectDestination(result: GeocodeResult): void {
+    this.localPointB.set(result.coordinates);
+    this.updatePointBMarker({ lat: result.coordinates.lat, lng: result.coordinates.lng });
+    this.searchDestination = result.name;
+    this.showDestinationResults = false;
 
-        // If both points set, draw route
-        if (this.distanceService.pointA() && this.distanceService.pointB()) {
-            this.drawRoute();
-            this.triggerCalculateIfReady();
-        }
+    // If both points set, draw route and calculate
+    if (this.localPointA() && this.localPointB()) {
+      this.drawRoute();
+      this.triggerCalculateIfReady();
     }
+  }
+  emitMapState() {
+    this.mapStateChange.emit({
+      origin: this.searchOrigin,
+      destination: this.searchDestination,
+      distance: this.localCalculatedDistance(),
+      isRoundTrip: this.localIsRoundTrip(),
+      pointA: this.localPointA(),
+      pointB: this.localPointB()
+    });
+  }
 
     // Trigger automatic distance calculation when both points are available
     private triggerCalculateIfReady(): void {
-        if (!this.distanceService.pointA() || !this.distanceService.pointB()) return;
+        const a = this.localPointA();
+        const b = this.localPointB();
+        if (!a || !b) return;
 
-        this.distanceService.calculateDistance().subscribe({
+        this.localIsLoading.set(true);
+        this.localErrorMessage.set('');
+        this.distanceService.calculateDistanceFor(a, b).subscribe({
             next: (res) => {
-                const processed = this.distanceService.processDistanceResult(res);
-                // Optionally we can emit or log the processed result
-                console.log('Auto-calculated route:', processed);
+                this.localBaseDistance.set(res.distanceKm);
+                const displayed = this.localIsRoundTrip() ? res.distanceKm * 2 : res.distanceKm;
+                this.localCalculatedDistance.set(Math.round(displayed * 100) / 100);
+                this.localIsLoading.set(false);
+                // Emit AFTER we have the final distance
+                this.emitMapState();
+                this.cdr.detectChanges();
+                console.log('Auto-calculated route:', res);
             },
             error: (err) => {
+                this.localErrorMessage.set(err.message || 'Failed to calculate route');
+                this.localIsLoading.set(false);
+                this.cdr.detectChanges();
                 console.error('Error calculating route:', err);
             }
         });
