@@ -43,8 +43,21 @@
       return true;
     };
     
-    // User helper info
-    if (!window.VITE_OPENROUTESERVICE_KEY && !localStorage.getItem('OPENROUTESERVICE_API_KEY')) {
+    // User helper info: only show the console guidance during local development
+    // to avoid leaking instructions or noisy messages on production sites.
+    // If you deploy to Netlify or another host, set the VITE_OPENROUTESERVICE_KEY
+    // in the host's environment variables (build settings) or instruct users to
+    // use the in-app key input (if enabled).
+    const showKeyHint = (function() {
+      try {
+        const host = location.hostname;
+        return host === 'localhost' || host === '127.0.0.1' || host === '';
+      } catch (e) {
+        return false;
+      }
+    })();
+
+    if (showKeyHint && !window.VITE_OPENROUTESERVICE_KEY && !localStorage.getItem('OPENROUTESERVICE_API_KEY')) {
       console.info(
         '%c⚠️  OpenRouteService API Key Not Found\n' +
         '%c📍 Need help? Here\'s how:\n\n' +
