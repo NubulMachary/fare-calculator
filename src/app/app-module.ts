@@ -8,6 +8,7 @@ import { RouterModule } from '@angular/router';
 import { AppRoutingModule } from './app-routing-module';
 import { App } from './app';
 import { MapComponent } from './components/map.component';
+import { GoogleMapComponent } from './components/google-map.component';
 
 @NgModule({
   declarations: [
@@ -20,7 +21,8 @@ import { MapComponent } from './components/map.component';
     CommonModule,
     HttpClientModule,
     RouterModule,
-    MapComponent  // Standalone component import
+    MapComponent,          // Leaflet-based (kept for reference)
+    GoogleMapComponent     // Google Maps-based (active)
   ],
   providers: [
     provideBrowserGlobalErrorListeners(),

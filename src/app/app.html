@@ -199,8 +199,9 @@
                 <input
                   id="distance"
                   type="number"
-                  [(ngModel)]="distance"
-                  (ngModelChange)="calculatePrice()"
+                  [ngModel]="distance()"
+                  [ngModelOptions]="{standalone: true}"
+                  (ngModelChange)="distance.set($event); calculatePrice()"
                   name="distance"
                   min="0"
                   step="0.1"
@@ -209,12 +210,37 @@
                 />
                 <button
                   type="button"
-                  (click)="toggleMapModal()"
+                  (click)="openMapFor(null)"
                   title="Calculate distance using map"
                   class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition duration-200 flex items-center gap-2"
                 >
                   📍 Map
                 </button>
+              </div>
+            </div>
+
+            <!-- Dynamic Stops (multiple distances) -->
+            <div class="space-y-2 mt-4">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-semibold text-gray-700">Stops (multiple distances)</label>
+                <button type="button" (click)="addStop()" class="text-sm text-indigo-600">+ Add Stop</button>
+              </div>
+              <div class="space-y-2">
+                <div *ngFor="let stop of stops(); let i = index" class="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    [ngModel]="stops()[i].distance"
+                    [ngModelOptions]="{standalone: true}"
+                    (ngModelChange)="updateStopDistance(i, $event)"
+                    placeholder="Distance for stop"
+                    min="0"
+                    step="0.1"
+                    class="flex-1 px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <button type="button" (click)="openMapFor(i)" class="px-3 py-2 bg-indigo-600 text-white rounded">📍</button>
+                  <button type="button" (click)="removeStop(i)" class="px-3 py-2 bg-gray-200 text-gray-700 rounded">✕</button>
+                </div>
+                <p *ngIf="stops().length > 0" class="text-sm text-gray-600 mt-2">Total distance (main + stops): {{ (toNumber(distance()) || 0) + stops().reduce((s, l) => s + (toNumber(l.distance) || 0), 0) | number:'1.2-2' }} km</p>
               </div>
             </div>
 
@@ -358,6 +384,13 @@
               <p class="text-gray-600 text-lg font-semibold mb-2">Total Fare Amount</p>
               <p class="text-4xl font-bold text-green-600">₹ {{ totalPrice() | number:'1.2-2' }}</p>
               <p class="text-sm text-gray-500 mt-2">All-inclusive price for the journey</p>
+              <button
+                type="button"
+                (click)="showSummary.set(true)"
+                class="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-semibold rounded-full shadow transition duration-150"
+              >
+                📋 Show Full Summary
+              </button>
             </div>
           </div>
 
@@ -367,7 +400,7 @@
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div class="bg-blue-50 p-4 rounded-lg">
                 <p class="text-sm text-gray-600">Fuel Cost</p>
-                <p class="text-2xl font-bold text-blue-600">₹ {{ ((toNumber(distance()) / toNumber(mileage())) * toNumber(fuelPrice())) | number:'1.2-2' }}</p>
+                <p class="text-2xl font-bold text-blue-600">₹ {{ ((totalDistance() / toNumber(mileage())) * toNumber(fuelPrice())) | number:'1.2-2' }}</p>
               </div>
               <div class="bg-purple-50 p-4 rounded-lg">
                 <p class="text-sm text-gray-600">Driver Expense</p>
@@ -446,7 +479,7 @@
                     <p class="text-sm text-gray-600" *ngIf="isAboveStandard()">
                       <span class="font-semibold text-red-600">↑ Above Standard</span>
                     </p>
-                    <p class="text-sm text-gray-600" *ngIf="!isAboveStandard() && toNumber(distance()) > 0">
+                    <p class="text-sm text-gray-600" *ngIf="!isAboveStandard() && totalDistance() > 0">
                       <span class="font-semibold text-green-600">↓ Below Standard</span>
                     </p>
                     <p class="text-2xl font-bold" [ngClass]="isAboveStandard() ? 'text-red-600' : 'text-green-600'">
@@ -542,7 +575,7 @@
               <li>✓ Cost per km: <strong>₹{{ costPerKm() | number:'1.2-2' }}</strong></li>
               <li>✓ Profit margin: <strong>{{ profitMarginPercent() | number:'1.1-2' }}%</strong></li>
               <li *ngIf="isAboveStandard()">⚠ Rate is <strong>₹{{ costVsStandard() | number:'1.2-2' }} above</strong> standard</li>
-              <li *ngIf="!isAboveStandard() && toNumber(distance()) > 0">✓ Rate is <strong>₹{{ (costVsStandard() * -1) | number:'1.2-2' }} below</strong> standard</li>
+              <li *ngIf="!isAboveStandard() && totalDistance() > 0">✓ Rate is <strong>₹{{ (costVsStandard() * -1) | number:'1.2-2' }} below</strong> standard</li>
               <li>✓ Fuel efficiency: <strong>{{ toNumber(mileage()) }} km/l</strong></li>
             </ul>
           </div>
@@ -558,7 +591,7 @@
 </main>
 
 <!-- Map Modal -->
-<div *ngIf="showMapModal()" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+<div *ngIf="showMapModal() !== null" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
   <div class="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
     <!-- Modal Header -->
     <div class="flex items-center justify-between p-6 border-b border-gray-200">
@@ -572,8 +605,8 @@
     </div>
 
     <!-- Modal Body -->
-    <div class="flex-1 overflow-auto p-6">
-      <app-map></app-map>
+    <div class="flex-1 overflow-y-auto p-4">
+  <app-google-map [stopIndex]="showMapModal()" [mapState]="getCurrentMapState()" (mapStateChange)="onMapStateChange($event)"></app-google-map>
     </div>
 
     <!-- Modal Footer -->
@@ -581,10 +614,10 @@
       <button
         type="button"
         (click)="applyDistanceFromMap()"
-        [disabled]="distanceService.calculatedDistance() === 0"
+        [disabled]="!getCurrentMapState() || getCurrentMapState()!.distance === 0"
         class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-3 px-4 rounded-lg transition duration-200"
       >
-        Apply Distance ({{ distanceService.calculatedDistance() | number:'1.2-2' }} km)
+        Apply Distance ({{ (getCurrentMapState()?.distance ?? 0) | number:'1.2-2' }} km)
       </button>
       <button
         type="button"
@@ -596,6 +629,241 @@
     </div>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- Full Summary Modal                                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div
+  *ngIf="showSummary()"
+  class="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4"
+  (click)="showSummary.set(false)"
+>
+  <!-- stop propagation so clicking inside doesn't close -->
+  <div
+    class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden"
+    (click)="$event.stopPropagation()"
+  >
+
+    <!-- ── Header ── -->
+    <div class="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-500 text-white flex-shrink-0">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">📋</span>
+        <div>
+          <h2 class="text-lg font-bold leading-tight">Full Journey Summary</h2>
+          <p class="text-green-100 text-xs">Detailed breakdown of fare calculation</p>
+        </div>
+      </div>
+      <button (click)="showSummary.set(false)" class="text-white hover:text-green-200 text-2xl leading-none font-light">✕</button>
+    </div>
+
+    <!-- ── Scrollable body ── -->
+    <div class="overflow-y-auto flex-1 px-5 py-4 space-y-5" *ngIf="summaryData() as s">
+
+      <!-- ══ 1. Route Legs ════════════════════════════════════════════ -->
+      <section>
+        <h3 class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">🗺️ Route Legs</h3>
+
+        <div *ngIf="s.legs.length === 0" class="text-sm text-gray-400 italic">No route points set yet.</div>
+
+        <div *ngFor="let leg of s.legs; let i = index"
+          class="mb-3 rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
+
+          <!-- Leg header -->
+          <div class="flex items-center justify-between px-4 py-2 bg-gray-100">
+            <span class="text-xs font-bold text-gray-600 uppercase tracking-wide">{{ leg.label }}</span>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full"
+              [class.bg-blue-100]="!leg.isRoundTrip" [class.text-blue-700]="!leg.isRoundTrip"
+              [class.bg-purple-100]="leg.isRoundTrip"  [class.text-purple-700]="leg.isRoundTrip">
+              {{ leg.isRoundTrip ? '🔄 Round Trip' : '➡️ One Way' }}
+            </span>
+          </div>
+
+          <!-- From → To -->
+          <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 py-3">
+            <!-- From -->
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="w-5 h-5 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">A</span>
+                <span class="text-sm font-semibold text-gray-800 truncate">{{ leg.from }}</span>
+              </div>
+              <p *ngIf="leg.fromCoords" class="text-[10px] text-gray-400 mt-0.5 pl-6 font-mono">{{ leg.fromCoords }}</p>
+            </div>
+
+            <!-- Arrow -->
+            <div class="flex flex-col items-center text-gray-300">
+              <span class="text-lg">→</span>
+            </div>
+
+            <!-- To -->
+            <div class="min-w-0 text-right">
+              <div class="flex items-center gap-1.5 justify-end">
+                <span class="text-sm font-semibold text-gray-800 truncate">{{ leg.to }}</span>
+                <span class="w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">B</span>
+              </div>
+              <p *ngIf="leg.toCoords" class="text-[10px] text-gray-400 mt-0.5 pr-6 font-mono">{{ leg.toCoords }}</p>
+            </div>
+          </div>
+
+          <!-- Distance row -->
+          <div class="flex items-center justify-between px-4 pb-3 text-sm">
+            <span class="text-gray-500">
+              <ng-container *ngIf="leg.isRoundTrip">
+                Base: {{ leg.baseKm | number:'1.1-1' }} km × 2
+              </ng-container>
+              <ng-container *ngIf="!leg.isRoundTrip">One-way</ng-container>
+            </span>
+            <span class="font-bold text-gray-800">{{ leg.distanceKm | number:'1.1-1' }} km</span>
+          </div>
+        </div>
+
+        <!-- Total distance row -->
+        <div *ngIf="s.legs.length > 0"
+          class="flex items-center justify-between px-4 py-2 rounded-lg bg-blue-50 border border-blue-100">
+          <span class="text-sm font-semibold text-blue-700">Total Distance</span>
+          <span class="text-base font-bold text-blue-700">{{ s.totalKm | number:'1.2-2' }} km</span>
+        </div>
+      </section>
+
+      <!-- ══ 2. Fuel Calculation ════════════════════════════════════ -->
+      <section>
+        <h3 class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">⛽ Fuel Calculation</h3>
+        <div class="rounded-xl border border-orange-100 bg-orange-50 divide-y divide-orange-100">
+
+          <div class="flex justify-between items-center px-4 py-2 text-sm">
+            <span class="text-gray-600">Total Distance</span>
+            <span class="font-medium text-gray-800">{{ s.totalKm | number:'1.2-2' }} km</span>
+          </div>
+
+          <div class="flex justify-between items-center px-4 py-2 text-sm">
+            <span class="text-gray-600">Vehicle Mileage</span>
+            <span class="font-medium text-gray-800">{{ s.mileage | number:'1.1-1' }} km/litre</span>
+          </div>
+
+          <div class="flex justify-between items-center px-4 py-2 text-sm">
+            <span class="text-gray-600">
+              Fuel Required
+              <span class="text-xs text-gray-400">({{ s.totalKm | number:'1.1-1' }} ÷ {{ s.mileage | number:'1.1-1' }})</span>
+            </span>
+            <span class="font-medium text-gray-800">{{ s.litersNeeded | number:'1.2-2' }} L</span>
+          </div>
+
+          <div class="flex justify-between items-center px-4 py-2 text-sm">
+            <span class="text-gray-600">Fuel Price</span>
+            <span class="font-medium text-gray-800">₹ {{ s.fuelPrice | number:'1.2-2' }} / litre</span>
+          </div>
+
+          <div class="flex justify-between items-center px-4 py-2 text-sm font-semibold bg-orange-100 rounded-b-xl">
+            <span class="text-orange-700">
+              Fuel Cost
+              <span class="font-normal text-xs">({{ s.litersNeeded | number:'1.2-2' }} L × ₹{{ s.fuelPrice | number:'1.2-2' }})</span>
+            </span>
+            <span class="text-orange-700">₹ {{ s.fuelTotal | number:'1.2-2' }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ 3. Other Costs ═════════════════════════════════════════ -->
+      <section>
+        <h3 class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">💰 Cost Breakdown</h3>
+        <div class="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden text-sm">
+
+          <!-- Fuel -->
+          <div class="flex justify-between items-center px-4 py-2 bg-orange-50">
+            <div>
+              <span class="font-medium text-gray-700">⛽ Fuel Cost</span>
+              <span class="text-xs text-gray-400 ml-1">(one-time trip cost)</span>
+            </div>
+            <span class="font-semibold text-orange-600">₹ {{ s.fuelTotal | number:'1.2-2' }}</span>
+          </div>
+
+          <!-- Driver -->
+          <div class="flex justify-between items-center px-4 py-2">
+            <div>
+              <span class="font-medium text-gray-700">🧑‍✈️ Driver Expense</span>
+              <span class="text-xs text-gray-400 ml-1"
+                *ngIf="s.days > 1">(₹{{ s.driverExp | number:'1.0-0' }} × {{ s.days }} days)</span>
+            </div>
+            <span class="font-semibold text-purple-600">₹ {{ s.driverTotal | number:'1.2-2' }}</span>
+          </div>
+
+          <!-- Toll -->
+          <div class="flex justify-between items-center px-4 py-2" *ngIf="s.tollTotal > 0">
+            <div>
+              <span class="font-medium text-gray-700">🛣️ Toll / Extra Expenses</span>
+              <span class="text-xs text-gray-400 ml-1">(per trip)</span>
+            </div>
+            <span class="font-semibold text-yellow-600">₹ {{ s.tollTotal | number:'1.2-2' }}</span>
+          </div>
+
+          <!-- Cost without profit -->
+          <div class="flex justify-between items-center px-4 py-2 bg-gray-50 font-semibold text-gray-700">
+            <span>Subtotal (before profit)</span>
+            <span>₹ {{ s.costWithoutProfit | number:'1.2-2' }}</span>
+          </div>
+
+          <!-- Profit -->
+          <div class="flex justify-between items-center px-4 py-2">
+            <div>
+              <span class="font-medium text-gray-700">📈 Profit Margin</span>
+              <span class="text-xs text-gray-400 ml-1"
+                *ngIf="s.days > 1">(₹{{ s.profitPerDay | number:'1.0-0' }} × {{ s.days }} days)</span>
+            </div>
+            <span class="font-semibold text-green-600">₹ {{ s.profitTotal | number:'1.2-2' }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ 4. Booking Info ═══════════════════════════════════════ -->
+      <section *ngIf="s.days > 1">
+        <h3 class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">📅 Multi-Day Booking</h3>
+        <div class="rounded-xl border border-indigo-100 bg-indigo-50 divide-y divide-indigo-100 text-sm">
+          <div class="flex justify-between items-center px-4 py-2">
+            <span class="text-gray-600">Booking Days</span>
+            <span class="font-medium text-indigo-700">{{ s.days }} days</span>
+          </div>
+          <div class="flex justify-between items-center px-4 py-2">
+            <span class="text-gray-600">Driver (per day)</span>
+            <span class="font-medium text-gray-800">₹ {{ s.driverExp | number:'1.2-2' }}</span>
+          </div>
+          <div class="flex justify-between items-center px-4 py-2">
+            <span class="text-gray-600">Profit (per day)</span>
+            <span class="font-medium text-gray-800">₹ {{ s.profitPerDay | number:'1.2-2' }}</span>
+          </div>
+          <div class="flex justify-between items-center px-4 py-2 text-xs text-gray-400 italic">
+            <span>Note: Fuel &amp; Toll are one-time trip costs, not multiplied by days.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ 5. Grand Total ════════════════════════════════════════ -->
+      <section>
+        <div class="rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white p-5 flex items-center justify-between shadow-md">
+          <div>
+            <p class="text-green-100 text-xs font-semibold uppercase tracking-wider">Grand Total Fare</p>
+            <p class="text-3xl font-extrabold mt-0.5">₹ {{ s.grandTotal | number:'1.2-2' }}</p>
+            <p class="text-green-200 text-xs mt-1">
+              ≈ ₹ {{ s.costPerKm | number:'1.2-2' }} / km
+              <ng-container *ngIf="s.totalKm > 0"> · {{ s.totalKm | number:'1.1-1' }} km total</ng-container>
+            </p>
+          </div>
+          <span class="text-5xl opacity-30">🚗</span>
+        </div>
+      </section>
+
+    </div><!-- /scrollable body -->
+
+    <!-- ── Footer ── -->
+    <div class="px-5 py-3 border-t border-gray-100 bg-gray-50 flex-shrink-0 text-right">
+      <button
+        (click)="showSummary.set(false)"
+        class="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold rounded-full text-sm transition"
+      >
+        Close
+      </button>
+    </div>
+
+  </div><!-- /modal card -->
+</div><!-- /summary overlay -->
 
 <!-- * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * -->
 <!-- * * * * * * * * * * * The content above * * * * * * * * * * * * -->

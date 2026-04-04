@@ -1,4 +1,5 @@
 export const environment = {
   production: true,
-  openrouteServiceKey: 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI4ZTQxZTEyYTRhZDQ3NzY4MDIzMjhmNzNjZGQ1YzQyIiwiaCI6Im11cm11cjY0In0='
+  openrouteServiceKey: 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI4ZTQxZTEyYTRhZDQ3NzY4MDIzMjhmNzNjZGQ1YzQyIiwiaCI6Im11cm11cjY0In0=',
+  googleMapsKey: 'AIzaSyCVhNRCNU5cIFpKl7wpsuGoD97oMltuejA'
 };
