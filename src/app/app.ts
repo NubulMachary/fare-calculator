@@ -16,7 +16,7 @@ export class App implements OnInit {
   distance = signal<number | string>('');
   mileage = signal<number | string>(7);
   fuelPrice = signal<number | string>(90);
-  driverExpense = signal<number | string>(1000);
+  driverExpense = signal<number | string>(1300);
   tollExpense = signal<number | string>('');
   profit = signal<number | string>(5000);
   // New: total booking days (defaults to 1)
@@ -290,12 +290,15 @@ export class App implements OnInit {
 
   resetForm() {
     this.distance.set('');
-    this.mileage.set('');
-    this.fuelPrice.set('');
-    this.driverExpense.set('');
+    this.mileage.set(7);
+    this.fuelPrice.set(90);
+    this.driverExpense.set(1000);
     this.tollExpense.set('');
-    this.profit.set('');
+    this.profit.set(5000);
     this.bookingDays.set(1);
+    this.stops.set([]);
+    this.mapStates.set([]);
+    this.mainMapState.set(null);
     this.totalPrice.set(0);
     this.resetAnalytics();
   }

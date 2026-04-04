@@ -68,9 +68,9 @@ const GMAPS_CALLBACK = '__gmapsReady__';
                 (mousedown)="selectOriginSuggestion(s)"
                 class="gmap-suggestion"
               >
-                <span class="sug-main">{{ s.structured_formatting?.main_text || s.description }}</span>
-                <span class="sug-sec" *ngIf="s.structured_formatting?.secondary_text">
-                  {{ s.structured_formatting.secondary_text }}
+                <span class="sug-main">{{ s.mainText?.text || s.text?.text }}</span>
+                <span class="sug-sec" *ngIf="s.secondaryText?.text">
+                  {{ s.secondaryText.text }}
                 </span>
               </li>
             </ul>
@@ -99,9 +99,9 @@ const GMAPS_CALLBACK = '__gmapsReady__';
                 (mousedown)="selectDestSuggestion(s)"
                 class="gmap-suggestion"
               >
-                <span class="sug-main">{{ s.structured_formatting?.main_text || s.description }}</span>
-                <span class="sug-sec" *ngIf="s.structured_formatting?.secondary_text">
-                  {{ s.structured_formatting.secondary_text }}
+                <span class="sug-main">{{ s.mainText?.text || s.text?.text }}</span>
+                <span class="sug-sec" *ngIf="s.secondaryText?.text">
+                  {{ s.secondaryText.text }}
                 </span>
               </li>
             </ul>
@@ -483,9 +483,23 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   private markerA: any = null;
   private markerB: any = null;
   private directionsRenderer: any = null;
-  private autocompleteService: any = null;
-  private placesService: any = null;
   private directionsService: any = null;
+
+  // New Places API library — loaded lazily on first search via importLibrary.
+  private placesLibrary: any = null;
+
+  // Session tokens — one per input field.
+  // A token groups all autocomplete keystrokes + the final selection into a
+  // single billable session, significantly reducing Places API costs.
+  // Rules:
+  //   • Create a NEW token when the user starts a fresh query (first keystroke
+  //     after the previous session ended).
+  //   • Pass the SAME token on every fetchAutocompleteSuggestions call while
+  //     the user is still typing in that field.
+  //   • Discard (set to null) immediately after calling toPlace() / Directions,
+  //     so the next keystroke generates a fresh token.
+  private originSessionToken: any = null;
+  private destSessionToken: any = null;
 
   // Stored place_ids from autocomplete — used so Directions API resolves
   // coordinates itself, eliminating any need for the Geocoding API.
@@ -495,7 +509,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   // ── Debounce timers ──────────────────────────────────────────────────────────
   private originDebounce: any;
   private destDebounce: any;
-  private readonly DEBOUNCE_MS = 1000; // 1000 ms — balances UX and API cost
+  private readonly DEBOUNCE_MS = 600; // 600 ms — safe with session tokens (all keystrokes = 1 billable session)
 
   constructor(
     private cdr: ChangeDetectorRef,
@@ -614,9 +628,6 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
       polylineOptions: { strokeColor: '#4285f4', strokeWeight: 4, strokeOpacity: 0.8 }
     });
     this.directionsRenderer.setMap(this.gmap);
-    this.autocompleteService = new google.maps.places.AutocompleteService();
-    // PlacesService needs a map or HTMLDivElement
-    this.placesService = new google.maps.places.PlacesService(this.gmap);
 
     // Click handler: first click = A, second = B, subsequent = move B
     this.gmap.addListener('click', (e: any) => this.onMapClick(e.latLng));
@@ -832,7 +843,12 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     const q = (e.target as HTMLInputElement).value.trim();
     this.searchOrigin = q;
     clearTimeout(this.originDebounce);
-    if (q.length < 2) { this.originSuggestions = []; return; }
+    if (q.length < 2) { this.originSuggestions = []; this.originSessionToken = null; return; }
+    // Create a session token the first time the user starts typing a new query.
+    // All subsequent keystrokes in this session reuse the same token.
+    if (!this.originSessionToken && this.placesLibrary) {
+      this.originSessionToken = new this.placesLibrary.AutocompleteSessionToken();
+    }
     this.originLoading = true;
     this.originDebounce = setTimeout(() => this.fetchSuggestions(q, 'origin'), this.DEBOUNCE_MS);
   }
@@ -841,46 +857,86 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     const q = (e.target as HTMLInputElement).value.trim();
     this.searchDestination = q;
     clearTimeout(this.destDebounce);
-    if (q.length < 2) { this.destSuggestions = []; return; }
+    if (q.length < 2) { this.destSuggestions = []; this.destSessionToken = null; return; }
+    // Create a session token the first time the user starts typing a new query.
+    if (!this.destSessionToken && this.placesLibrary) {
+      this.destSessionToken = new this.placesLibrary.AutocompleteSessionToken();
+    }
     this.destLoading = true;
     this.destDebounce = setTimeout(() => this.fetchSuggestions(q, 'dest'), this.DEBOUNCE_MS);
   }
 
-  private fetchSuggestions(query: string, target: 'origin' | 'dest'): void {
-    if (!this.autocompleteService) return;
-    this.autocompleteService.getPlacePredictions(
-      { input: query, types: ['geocode', 'establishment'] },
-      (predictions: any[], status: string) => {
-        if (target === 'origin') {
-          this.originLoading = false;
-          this.originSuggestions = status === 'OK' ? predictions : [];
-        } else {
-          this.destLoading = false;
-          this.destSuggestions = status === 'OK' ? predictions : [];
-        }
+  private async fetchSuggestions(query: string, target: 'origin' | 'dest'): Promise<void> {
+    // Lazily load the New Places library on first use.
+    if (!this.placesLibrary) {
+      try {
+        this.placesLibrary = await google.maps.importLibrary('places');
+      } catch {
+        if (target === 'origin') { this.originLoading = false; this.originSuggestions = []; }
+        else                     { this.destLoading   = false; this.destSuggestions   = []; }
         this.cdr.detectChanges();
+        return;
       }
-    );
+    }
+
+    // Create session token now if it wasn't created in onInput yet
+    // (happens on the very first search before placesLibrary was available).
+    if (target === 'origin' && !this.originSessionToken) {
+      this.originSessionToken = new this.placesLibrary.AutocompleteSessionToken();
+    }
+    if (target === 'dest' && !this.destSessionToken) {
+      this.destSessionToken = new this.placesLibrary.AutocompleteSessionToken();
+    }
+
+    try {
+      // ── New Places API ─────────────────────────────────────────────────────
+      // Passing sessionToken groups all keystrokes + final selection into one
+      // billable session — dramatically cheaper than per-request billing.
+      const request = {
+        input: query,
+        language: 'en',
+        region: 'in',
+        includedPrimaryTypes: [],
+        sessionToken: target === 'origin' ? this.originSessionToken : this.destSessionToken,
+      };
+      const { suggestions } =
+        await this.placesLibrary.AutocompleteSuggestion.fetchAutocompleteSuggestions(request);
+
+      const mapped = (suggestions ?? []).map((s: any) => s.placePrediction);
+
+      if (target === 'origin') {
+        this.originLoading = false;
+        this.originSuggestions = mapped;
+      } else {
+        this.destLoading = false;
+        this.destSuggestions = mapped;
+      }
+    } catch {
+      if (target === 'origin') { this.originLoading = false; this.originSuggestions = []; }
+      else                     { this.destLoading   = false; this.destSuggestions   = []; }
+    }
+    this.cdr.detectChanges();
   }
 
   // ── Suggestion selection ─────────────────────────────────────────────────────
 
   selectOriginSuggestion(suggestion: any): void {
-    this.searchOrigin = suggestion.description;
+    this.searchOrigin = suggestion.text?.text ?? suggestion.mainText?.text ?? '';
     this.originSuggestions = [];
     this.originFocused = false;
-    this.pendingOriginPlaceId = suggestion.place_id;
+    const placeId: string = suggestion.placeId;
+    this.pendingOriginPlaceId = placeId;
+
+    // Discard the session token — this signals the end of the autocomplete
+    // session to Google and completes the single billable session unit.
+    this.originSessionToken = null;
 
     if (this.pendingDestPlaceId) {
-      // Both place IDs known — one Directions call resolves both coords + route.
-      this.calculateRoute(suggestion.place_id, this.pendingDestPlaceId);
+      this.calculateRoute(placeId, this.pendingDestPlaceId);
     } else if (this.localPointB()) {
-      // Destination is a map-click LatLng — pass place_id for origin only.
-      this.calculateRoute(suggestion.place_id, this.localPointB()!);
+      this.calculateRoute(placeId, this.localPointB()!);
     } else {
-      // Destination not yet chosen — resolve origin coordinate via a
-      // zero-distance Directions call (origin = destination = same place_id).
-      this.resolveCoordFromPlaceId(suggestion.place_id, (latLng: any) => {
+      this.resolveCoordFromPlaceId(placeId, (latLng: any) => {
         const pos = { lat: latLng.lat(), lng: latLng.lng() };
         this.localPointA.set(pos);
         this.placeMarkerA(latLng);
@@ -891,20 +947,21 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   }
 
   selectDestSuggestion(suggestion: any): void {
-    this.searchDestination = suggestion.description;
+    this.searchDestination = suggestion.text?.text ?? suggestion.mainText?.text ?? '';
     this.destSuggestions = [];
     this.destFocused = false;
-    this.pendingDestPlaceId = suggestion.place_id;
+    const placeId: string = suggestion.placeId;
+    this.pendingDestPlaceId = placeId;
+
+    // Discard the session token — ends the billable session for this field.
+    this.destSessionToken = null;
 
     if (this.pendingOriginPlaceId) {
-      // Both place IDs known — one Directions call resolves both coords + route.
-      this.calculateRoute(this.pendingOriginPlaceId, suggestion.place_id);
+      this.calculateRoute(this.pendingOriginPlaceId, placeId);
     } else if (this.localPointA()) {
-      // Origin is a map-click LatLng — pass place_id for destination only.
-      this.calculateRoute(this.localPointA()!, suggestion.place_id);
+      this.calculateRoute(this.localPointA()!, placeId);
     } else {
-      // Origin not yet chosen — resolve destination coordinate alone.
-      this.resolveCoordFromPlaceId(suggestion.place_id, (latLng: any) => {
+      this.resolveCoordFromPlaceId(placeId, (latLng: any) => {
         const pos = { lat: latLng.lat(), lng: latLng.lng() };
         this.localPointB.set(pos);
         this.placeMarkerB(latLng);
@@ -937,9 +994,23 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     );
   }
 
-  // Close dropdowns on blur (delayed so click fires first)
-  onOriginBlur(): void { setTimeout(() => { this.originFocused = false; this.cdr.detectChanges(); }, 200); }
-  onDestBlur(): void   { setTimeout(() => { this.destFocused   = false; this.cdr.detectChanges(); }, 200); }
+  // Close dropdowns on blur (delayed so mousedown on a suggestion fires first).
+  // Also discard any open session token — an abandoned session should not be
+  // left open, as Google may charge it on the next unrelated query.
+  onOriginBlur(): void {
+    setTimeout(() => {
+      this.originFocused = false;
+      if (this.originSuggestions.length === 0) this.originSessionToken = null;
+      this.cdr.detectChanges();
+    }, 200);
+  }
+  onDestBlur(): void {
+    setTimeout(() => {
+      this.destFocused = false;
+      if (this.destSuggestions.length === 0) this.destSessionToken = null;
+      this.cdr.detectChanges();
+    }, 200);
+  }
 
   // ── Emit ─────────────────────────────────────────────────────────────────────
 
