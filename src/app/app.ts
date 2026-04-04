@@ -15,6 +15,8 @@ export class App implements OnInit {
   driverExpense = signal<number | string>(1000);
   tollExpense = signal<number | string>('');
   profit = signal<number | string>(5000);
+  // New: total booking days (defaults to 1)
+  bookingDays = signal<number | string>(1);
 
   // Output signals - Price Calculation
   totalPrice = signal<number>(0);
@@ -54,6 +56,7 @@ export class App implements OnInit {
     const driverExp = Number(this.driverExpense());
     const tollExp = Number(this.tollExpense());
     const profitMargin = Number(this.profit());
+    const days = Math.max(1, Number(this.bookingDays()) || 1);
 
     // Validate inputs
     if (mileage === 0 || dist === 0 || isNaN(dist) || isNaN(mileage) || isNaN(fuelPrice)) {
@@ -62,37 +65,43 @@ export class App implements OnInit {
       return;
     }
 
-    // Calculate fuel cost
-    const fuelCostValue = (dist / mileage) * fuelPrice;
-    this.fuelCost.set(Math.round(fuelCostValue * 100) / 100);
+  // Calculate fuel cost based on the trip distance (distance does NOT change with booking days)
+  const fuelCostValue = (dist / mileage) * fuelPrice;
+  this.fuelCost.set(Math.round(fuelCostValue * 100) / 100);
 
-    // Calculate total cost without profit
-    const costWithoutProfitValue = fuelCostValue + driverExp + tollExp;
-    this.costWithoutProfit.set(Math.round(costWithoutProfitValue * 100) / 100);
+  // Calculate totals where only driver and profit are considered per-day
+  // Toll is considered a one-time per-trip expense and does NOT scale with days
+  const driverTotal = driverExp * days;
+  const tollTotal = tollExp; // per trip
+  const profitTotal = profitMargin * days;
 
-    // Calculate total price with profit
-    const total = costWithoutProfitValue + profitMargin;
-    this.totalPrice.set(Math.round(total * 100) / 100);
+  // Total cost without profit: fuel cost (single trip) + per-day driver/toll totals
+  const costWithoutProfitValue = fuelCostValue + driverTotal + tollTotal;
+  this.costWithoutProfit.set(Math.round(costWithoutProfitValue * 100) / 100);
+
+  // Total price for the booking: aggregated cost + aggregated profit
+  const total = costWithoutProfitValue + profitTotal;
+  this.totalPrice.set(Math.round(total * 100) / 100);
 
     // === RATE ANALYSIS CALCULATIONS ===
 
-    // Cost per km
-    const costPerKmValue = total / dist;
+  // Cost per km (aggregated across the booking)
+  const costPerKmValue = dist > 0 ? total / dist : 0;
     this.costPerKm.set(Math.round(costPerKmValue * 100) / 100);
 
-    // Profit per km
-    const profitPerKmValue = profitMargin / dist;
-    this.profitPerKm.set(Math.round(profitPerKmValue * 100) / 100);
+  // Profit per km (total profit across booking divided by distance)
+  const profitPerKmValue = dist > 0 ? profitTotal / dist : 0;
+  this.profitPerKm.set(Math.round(profitPerKmValue * 100) / 100);
 
-    // Profit margin percentage
-    const profitPercentValue = (profitMargin / costWithoutProfitValue) * 100;
-    this.profitMarginPercent.set(Math.round(profitPercentValue * 100) / 100);
+  // Profit margin percentage (based on aggregated values)
+  const profitPercentValue = costWithoutProfitValue > 0 ? (profitTotal / costWithoutProfitValue) * 100 : 0;
+  this.profitMarginPercent.set(Math.round(profitPercentValue * 100) / 100);
 
-    // Cost per liter used
-    const literRequiredValue = dist / mileage;
-    this.literRequired.set(Math.round(literRequiredValue * 100) / 100);
-    const costPerLiterValue = fuelCostValue / literRequiredValue;
-    this.costPerLiter.set(Math.round(costPerLiterValue * 100) / 100);
+  // Cost per liter used (based on the trip distance; distance does not change with days)
+  const literRequiredValue = dist / mileage;
+  this.literRequired.set(Math.round(literRequiredValue * 100) / 100);
+  const costPerLiterValue = literRequiredValue > 0 ? fuelCostValue / literRequiredValue : 0;
+  this.costPerLiter.set(Math.round(costPerLiterValue * 100) / 100);
 
     // Compare with standard rate
     const standardCost = dist * this.standardRate();
@@ -118,6 +127,7 @@ export class App implements OnInit {
     this.driverExpense.set('');
     this.tollExpense.set('');
     this.profit.set('');
+    this.bookingDays.set(1);
     this.totalPrice.set(0);
     this.resetAnalytics();
   }

@@ -308,6 +308,24 @@
               />
             </div>
 
+            <!-- Total Booking Days Input -->
+            <div class="space-y-2">
+              <label for="bookingDays" class="block text-sm font-semibold text-gray-700">
+                Total Booking Days
+              </label>
+              <input
+                id="bookingDays"
+                type="number"
+                [(ngModel)]="bookingDays"
+                (ngModelChange)="calculatePrice()"
+                name="bookingDays"
+                min="1"
+                step="1"
+                placeholder="Enter number of booking days (default 1)"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+              />
+            </div>
+
             <!-- Formula Display -->
             <!-- <div class="bg-gray-50 rounded-lg p-4 my-8">
               <p class="text-sm text-gray-600 font-mono">
