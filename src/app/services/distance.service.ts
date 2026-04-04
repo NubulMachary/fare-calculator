@@ -50,6 +50,8 @@ export class DistanceService {
   pointA = signal<RouteCoordinates | null>(null);
   pointB = signal<RouteCoordinates | null>(null);
   calculatedDistance = signal<number>(0);
+  // baseDistance stores the one-way calculated distance (km) before round-trip multiplier
+  baseDistance = signal<number>(0);
   isRoundTrip = signal<boolean>(false);
   routeGeometry = signal<any>(null);
   isLoading = signal<boolean>(false);
@@ -75,7 +77,15 @@ export class DistanceService {
    * Toggle round trip option
    */
   toggleRoundTrip(): void {
-    this.isRoundTrip.set(!this.isRoundTrip());
+    const newVal = !this.isRoundTrip();
+    this.isRoundTrip.set(newVal);
+
+    // If we already have a base distance, update the calculatedDistance immediately
+    const base = this.baseDistance();
+    if (base && base > 0) {
+      const newCalculated = newVal ? base * 2 : base;
+      this.calculatedDistance.set(Math.round(newCalculated * 100) / 100);
+    }
   }
 
   /**
@@ -100,14 +110,30 @@ export class DistanceService {
     this.isLoading.set(true);
     this.errorMessage.set('');
 
-    // Prepare coordinates for OpenRouteService (format: [lng, lat])
-    const coordinates = `${pointAData.lng},${pointAData.lat}|${pointBData.lng},${pointBData.lat}`;
+    // Prepare coordinates for OpenRouteService (format: [[lng, lat], [lng, lat]])
+    const body = {
+      coordinates: [
+        [pointAData.lng, pointAData.lat],
+        [pointBData.lng, pointBData.lat]
+      ],
+      instructions: false,
+      geometry: true
+    };
 
-    return this.http.get<any>(
-      `${this.BASE_URL}?api_key=${apiKey}&coordinates=${coordinates}&geometry=true`
+    const headers = {
+      'Authorization': apiKey,
+      'Content-Type': 'application/json'
+    };
+
+    // Use POST with Authorization header (recommended by OpenRouteService)
+    return this.http.post<any>(
+      `${this.BASE_URL}`,
+      body,
+      { headers }
     ).pipe(
       catchError((error) => {
-        const errorMsg = error.error?.message || 'Failed to calculate distance';
+        console.error('Distance API error:', error);
+        const errorMsg = error?.error?.error || error?.error?.message || error.statusText || 'Failed to calculate distance';
         this.errorMessage.set(errorMsg);
         this.isLoading.set(false);
         return throwError(() => new Error(errorMsg));
@@ -119,17 +145,13 @@ export class DistanceService {
    * Process the distance result and apply round trip multiplier
    */
   processDistanceResult(result: any): DistanceResult {
-    let distance = result.routes[0].summary.distance / 1000; // Convert to km
+    let distance = result.routes[0].summary.distance / 1000; // Convert to km (one-way)
     const duration = result.routes[0].summary.duration;
     const geometry = result.routes[0].geometry;
-
-    // Apply round trip multiplier if enabled
-    if (this.isRoundTrip()) {
-      distance *= 2;
-    }
-
-    // Store the processed data
-    this.calculatedDistance.set(distance);
+    // Store base (one-way) distance and apply multiplier for displayed value
+    this.baseDistance.set(distance);
+    const displayed = this.isRoundTrip() ? distance * 2 : distance;
+    this.calculatedDistance.set(Math.round(displayed * 100) / 100);
     this.routeGeometry.set(geometry);
     this.isLoading.set(false);
 
@@ -174,12 +196,14 @@ export class DistanceService {
       return throwError(() => new Error(keyMsg));
     }
 
+    const headers = { 'Authorization': apiKey };
     return this.http.get<any>(
-      `${this.GEOCODING_URL}?api_key=${apiKey}&text=${encodeURIComponent(query)}`
+      `${this.GEOCODING_URL}?text=${encodeURIComponent(query)}`,
+      { headers }
     ).pipe(
       catchError((error) => {
-        const errorMsg = error.error?.message || 'Failed to search locations';
-        console.error('Geocoding error:', errorMsg);
+        const errorMsg = error?.error?.error || error?.error?.message || error.statusText || 'Failed to search locations';
+        console.error('Geocoding error:', error);
         return throwError(() => new Error(errorMsg));
       })
     );

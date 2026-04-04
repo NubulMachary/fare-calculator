@@ -6,7 +6,5 @@ export const environment = {
   // Vite injects env vars as global constants at build time
   // Access the API key that's injected by Vite during the build process
   // Guard against SSR context where window is not defined
-  openrouteServiceKey: typeof window !== 'undefined' 
-    ? ((window as any).VITE_OPENROUTESERVICE_KEY || (window as any).__VITE_OPENROUTESERVICE_KEY__ || '')
-    : ''
+  openrouteServiceKey: 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI4ZTQxZTEyYTRhZDQ3NzY4MDIzMjhmNzNjZGQ1YzQyIiwiaCI6Im11cm11cjY0In0='
 };
