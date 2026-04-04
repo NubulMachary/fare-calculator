@@ -52,7 +52,8 @@ export class DistanceService {
   calculatedDistance = signal<number>(0);
   // baseDistance stores the one-way calculated distance (km) before round-trip multiplier
   baseDistance = signal<number>(0);
-  isRoundTrip = signal<boolean>(false);
+  // Make round-trip checked by default
+  isRoundTrip = signal<boolean>(true);
   routeGeometry = signal<any>(null);
   isLoading = signal<boolean>(false);
   errorMessage = signal<string>('');
