@@ -301,7 +301,7 @@
             <!-- Toll/Extra Expenses Input -->
             <div style="display:flex; flex-direction:column; gap:10px;">
               <label for="tollExpense" class="block text-sm font-semibold text-gray-700">
-                Toll / Extra Expenses (₹)
+                Total Return Tolls / Extra Expenses (₹)
               </label>
               <input
                 id="tollExpense"
@@ -591,11 +591,11 @@
 </main>
 
 <!-- Map Modal -->
-<div *ngIf="showMapModal() !== null" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-2 sm:p-4">
-  <div class="bg-white rounded-lg shadow-2xl w-full max-w-4xl flex flex-col" style="height: calc(100dvh - 16px); max-height: calc(100dvh - 16px);">
+<div *ngIf="showMapModal() !== null" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-0 sm:p-4">
+  <div class="bg-white rounded-lg shadow-2xl w-full max-w-4xl flex flex-col" style="height: calc(100dvh - 0px); max-height: calc(100dvh - 0px);">
     <!-- Modal Header -->
     <div class="flex items-center justify-between p-3 border-b border-gray-200 flex-shrink-0">
-      <h2 class="text-2xl font-bold text-gray-900">Route Calculator</h2>
+      <h2 class="text-2xl font-bold text-gray-900 text-center flex-1">Route Calculator</h2>
       <button
         (click)="toggleMapModal()"
         class="text-gray-500 hover:text-gray-700 text-2xl font-semibold"
@@ -615,16 +615,16 @@
         type="button"
         (click)="applyDistanceFromMap()"
         [disabled]="!getCurrentMapState() || getCurrentMapState()!.distance === 0"
-        class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold sm:py-4 py-1 px-4 rounded-lg transition duration-200"
-        style="font-size: 12px;"
+        class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold sm:py-4 py-4 px-2 rounded-lg transition duration-200"
+        style="font-size: 14px;"
       >
-        Apply Distance ({{ (getCurrentMapState()?.distance ?? 0) | number:'1.2-2' }} km)
+        Distance ({{ (getCurrentMapState()?.distance ?? 0) | number:'1.2-2' }} km)
       </button>
       <button
         type="button"
         (click)="toggleMapModal()"
-        class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-900 font-bold sm:py-4 py-1 px-4 rounded-lg transition duration-200"
-        style="font-size: 12px;"
+        class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold sm:py-4 py-4 px-2 rounded-lg transition duration-200"
+        style="font-size: 14px;"
       >
         Close
       </button>

@@ -183,9 +183,9 @@ const GMAPS_CALLBACK = '__gmapsReady__';
       <!-- Info overlay — shown once both points are set -->
       @if (localPointA() && localPointB()) {
       <div class="gmap-info-overlay">
-        <div class="gmap-info-card">
+        <div class="gmap-info-card d-flex flex-column align-items-center justify-content-between">
           <!-- Point A -->
-          <div class="gmap-info-point">
+          <!-- <div class="gmap-info-point">
             <span class="gmap-dot gmap-dot-a">A</span>
             <div class="gmap-info-text">
               <span class="gmap-info-label">From</span>
@@ -193,11 +193,10 @@ const GMAPS_CALLBACK = '__gmapsReady__';
                 (mouseenter)="showTooltip($event, searchOrigin || 'Point A')"
                 (mouseleave)="hideTooltip()"
                 (click)="toggleTooltip($event, searchOrigin || 'Point A')">{{ searchOrigin || 'Point A' }}</span>
-              <!-- <span class="gmap-info-coords">{{ localPointA()!.lat.toFixed(4) }}, {{ localPointA()!.lng.toFixed(4) }}</span> -->
+              <span class="gmap-info-coords">{{ localPointA()!.lat.toFixed(4) }}, {{ localPointA()!.lng.toFixed(4) }}</span>
             </div>
           </div>
           <span class="gmap-info-arrow">→</span>
-          <!-- Point B -->
           <div class="gmap-info-point">
             <span class="gmap-dot gmap-dot-b">B</span>
             <div class="gmap-info-text">
@@ -206,25 +205,38 @@ const GMAPS_CALLBACK = '__gmapsReady__';
                 (mouseenter)="showTooltip($event, searchDestination || 'Point B')"
                 (mouseleave)="hideTooltip()"
                 (click)="toggleTooltip($event, searchDestination || 'Point B')">{{ searchDestination || 'Point B' }}</span>
-              <!-- <span class="gmap-info-coords">{{ localPointB()!.lat.toFixed(4) }}, {{ localPointB()!.lng.toFixed(4) }}</span> -->
+              <span class="gmap-info-coords">{{ localPointB()!.lat.toFixed(4) }}, {{ localPointB()!.lng.toFixed(4) }}</span>
             </div>
-          </div>
+          </div> -->
           <!-- Distance -->
           <div class="gmap-info-dist">
             <span class="gmap-info-label">Distance</span>
-            @if (localCalculatedDistance() > 0 && !localIsLoading()) {
-            <span class="gmap-dist-value">{{ localCalculatedDistance() | number:'1.1-1' }} km</span>
-            }
             @if (localIsLoading()) {
-            <span class="gmap-dist-value calculating">Calculating…</span>
+              <span class="gmap-dist-value calculating">Calculating…</span>
             }
-            @if (!localIsLoading() && localCalculatedDistance() === 0) {
-            <span class="gmap-dist-value pending">—</span>
+            @if (!localIsLoading() && localBaseDistance() === 0) {
+              <span class="gmap-dist-value pending">—</span>
             }
-            @if (localBaseDistance() > 0 && localIsRoundTrip()) {
-            <span class="gmap-dist-oneway">{{ localBaseDistance() | number:'1.1-1' }} km one-way</span>
+            @if (!localIsLoading() && localBaseDistance() > 0) {
+              <span class="gmap-dist-value">{{ localBaseDistance() | number:'1.1-1' }} km</span>
             }
           </div>
+
+          <!-- Round Trip (only shown when round trip is ON) -->
+          @if (localIsRoundTrip()) {
+          <div class="gmap-info-dist">
+            <span class="gmap-info-label">Round Trip</span>
+            @if (localIsLoading()) {
+              <span class="gmap-dist-value calculating">Calculating…</span>
+            }
+            @if (!localIsLoading() && localCalculatedDistance() === 0) {
+              <span class="gmap-dist-value pending">—</span>
+            }
+            @if (!localIsLoading() && localCalculatedDistance() > 0) {
+              <span class="gmap-dist-value">{{ localCalculatedDistance() | number:'1.1-1' }} km</span>
+            }
+          </div>
+          }
         </div>
       </div>
       }
@@ -515,6 +527,7 @@ const GMAPS_CALLBACK = '__gmapsReady__';
       flex-wrap: nowrap;
       gap: 0.5rem;
       overflow: visible;
+      justify-content: space-around;
     }
     .gmap-info-point {
       display: flex;
@@ -578,7 +591,7 @@ const GMAPS_CALLBACK = '__gmapsReady__';
     .gmap-info-arrow { font-size: 1rem; color: #aaa; flex-shrink: 0; }
     .gmap-info-dist {
       display: flex; flex-direction: column;
-      align-items: flex-end; flex-shrink: 0;
+      align-items: center; flex-shrink: 0;
       min-width: 72px; text-align: right;
     }
     .gmap-dist-value {
