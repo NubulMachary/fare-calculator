@@ -37,10 +37,12 @@ const GMAPS_CALLBACK = '__gmapsReady__';
   <div class="gmap-wrapper">
 
     <!-- ── Loading state ── -->
-    <div *ngIf="!mapReady" class="gmap-loading">
+    @if (!mapReady) {
+    <div class="gmap-loading">
       <span class="gmap-spinner"></span>
       <p>Loading map…</p>
     </div>
+    }
 
     <!-- ── Search panel ── -->
     <div class="gmap-search-panel" [class.ready]="mapReady">
@@ -53,7 +55,7 @@ const GMAPS_CALLBACK = '__gmapsReady__';
             <input
               #originInputEl
               type="text"
-              class="gmap-input"
+              class="gmap-input gmap-input-with-btn"
               placeholder="Search origin…"
               [(ngModel)]="searchOrigin"
               (input)="onOriginInput($event)"
@@ -61,19 +63,40 @@ const GMAPS_CALLBACK = '__gmapsReady__';
               (blur)="onOriginBlur()"
               autocomplete="off"
             />
-            <ul *ngIf="originFocused && originSuggestions.length > 0" class="gmap-suggestions">
-              <li *ngIf="originLoading" class="gmap-suggestion loading">Searching…</li>
+            @if (searchOrigin) {
+            <button
+              type="button"
+              class="gmap-clear-btn"
+              (mousedown)="$event.preventDefault(); clearPoint('origin')"
+              title="Clear origin"
+            >✕</button>
+            }
+            <button
+              type="button"
+              class="gmap-locate-btn"
+              [class.locating]="locatingOrigin"
+              (click)="useCurrentLocation('origin')"
+              title="Use my current location as origin"
+            >
+              @if (!locatingOrigin) { <span>⌖</span> }
+              @if (locatingOrigin) { <span class="gmap-locate-spin"></span> }
+            </button>
+            @if (originFocused && originSuggestions.length > 0) {
+            <ul class="gmap-suggestions">
+              @if (originLoading) { <li class="gmap-suggestion loading">Searching…</li> }
+              @for (s of originSuggestions; track s.placeId) {
               <li
-                *ngFor="let s of originSuggestions"
                 (mousedown)="selectOriginSuggestion(s)"
                 class="gmap-suggestion"
               >
                 <span class="sug-main">{{ s.mainText?.text || s.text?.text }}</span>
-                <span class="sug-sec" *ngIf="s.secondaryText?.text">
-                  {{ s.secondaryText.text }}
-                </span>
+                @if (s.secondaryText?.text) {
+                <span class="sug-sec">{{ s.secondaryText.text }}</span>
+                }
               </li>
+              }
             </ul>
+            }
           </div>
         </div>
 
@@ -84,7 +107,7 @@ const GMAPS_CALLBACK = '__gmapsReady__';
             <input
               #destInputEl
               type="text"
-              class="gmap-input"
+              class="gmap-input gmap-input-with-btn"
               placeholder="Search destination…"
               [(ngModel)]="searchDestination"
               (input)="onDestInput($event)"
@@ -92,19 +115,40 @@ const GMAPS_CALLBACK = '__gmapsReady__';
               (blur)="onDestBlur()"
               autocomplete="off"
             />
-            <ul *ngIf="destFocused && destSuggestions.length > 0" class="gmap-suggestions">
-              <li *ngIf="destLoading" class="gmap-suggestion loading">Searching…</li>
+            @if (searchDestination) {
+            <button
+              type="button"
+              class="gmap-clear-btn"
+              (mousedown)="$event.preventDefault(); clearPoint('dest')"
+              title="Clear destination"
+            >✕</button>
+            }
+            <button
+              type="button"
+              class="gmap-locate-btn"
+              [class.locating]="locatingDest"
+              (click)="useCurrentLocation('dest')"
+              title="Use my current location as destination"
+            >
+              @if (!locatingDest) { <span>⌖</span> }
+              @if (locatingDest) { <span class="gmap-locate-spin"></span> }
+            </button>
+            @if (destFocused && destSuggestions.length > 0) {
+            <ul class="gmap-suggestions">
+              @if (destLoading) { <li class="gmap-suggestion loading">Searching…</li> }
+              @for (s of destSuggestions; track s.placeId) {
               <li
-                *ngFor="let s of destSuggestions"
                 (mousedown)="selectDestSuggestion(s)"
                 class="gmap-suggestion"
               >
                 <span class="sug-main">{{ s.mainText?.text || s.text?.text }}</span>
-                <span class="sug-sec" *ngIf="s.secondaryText?.text">
-                  {{ s.secondaryText.text }}
-                </span>
+                @if (s.secondaryText?.text) {
+                <span class="sug-sec">{{ s.secondaryText.text }}</span>
+                }
               </li>
+              }
             </ul>
+            }
           </div>
         </div>
 
@@ -128,7 +172,8 @@ const GMAPS_CALLBACK = '__gmapsReady__';
       <div #mapContainer class="gmap-canvas"></div>
 
       <!-- Info overlay — shown once both points are set -->
-      <div class="gmap-info-overlay" *ngIf="localPointA() && localPointB()">
+      @if (localPointA() && localPointB()) {
+      <div class="gmap-info-overlay">
         <div class="gmap-info-card">
           <!-- Point A -->
           <div class="gmap-info-point">
@@ -152,28 +197,37 @@ const GMAPS_CALLBACK = '__gmapsReady__';
           <!-- Distance -->
           <div class="gmap-info-dist">
             <span class="gmap-info-label">Distance</span>
-            <span class="gmap-dist-value" *ngIf="localCalculatedDistance() > 0 && !localIsLoading()">
-              {{ localCalculatedDistance() | number:'1.1-1' }} km
-            </span>
-            <span class="gmap-dist-value calculating" *ngIf="localIsLoading()">Calculating…</span>
-            <span class="gmap-dist-value pending" *ngIf="!localIsLoading() && localCalculatedDistance() === 0">—</span>
-            <span class="gmap-dist-oneway" *ngIf="localBaseDistance() > 0 && localIsRoundTrip()">
-              {{ localBaseDistance() | number:'1.1-1' }} km one-way
-            </span>
+            @if (localCalculatedDistance() > 0 && !localIsLoading()) {
+            <span class="gmap-dist-value">{{ localCalculatedDistance() | number:'1.1-1' }} km</span>
+            }
+            @if (localIsLoading()) {
+            <span class="gmap-dist-value calculating">Calculating…</span>
+            }
+            @if (!localIsLoading() && localCalculatedDistance() === 0) {
+            <span class="gmap-dist-value pending">—</span>
+            }
+            @if (localBaseDistance() > 0 && localIsRoundTrip()) {
+            <span class="gmap-dist-oneway">{{ localBaseDistance() | number:'1.1-1' }} km one-way</span>
+            }
           </div>
         </div>
       </div>
+      }
 
       <!-- Hint -->
-      <div class="gmap-hint" *ngIf="mapReady && !localPointA()">
+      @if (mapReady && !localPointA()) {
+      <div class="gmap-hint">
         Click the map or search above to set your route
       </div>
+      }
     </div>
 
     <!-- Error -->
-    <div *ngIf="localErrorMessage()" class="gmap-error">
+    @if (localErrorMessage()) {
+    <div class="gmap-error">
       <span>⚠</span> {{ localErrorMessage() }}
     </div>
+    }
 
   </div>
   `,
@@ -271,6 +325,66 @@ const GMAPS_CALLBACK = '__gmapsReady__';
       outline: none;
       border-color: #4285f4;
       box-shadow: 0 0 0 3px rgba(66,133,244,0.12);
+    }
+    .gmap-input-with-btn {
+      padding-right: 4.2rem; /* room for both clear + locate buttons */
+    }
+    .gmap-clear-btn {
+      position: absolute;
+      right: 2.15rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 0.8rem;
+      line-height: 1;
+      padding: 0.2rem 0.25rem;
+      color: #9aa0a6;
+      opacity: 0.8;
+      transition: opacity 0.15s, color 0.15s;
+      z-index: 2;
+    }
+    .gmap-clear-btn:hover {
+      opacity: 1;
+      color: #ea4335;
+    }
+    .gmap-locate-btn {
+      position: absolute;
+      right: 0.45rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1.35rem;
+      line-height: 1;
+      padding: 0.2rem;
+      color: #5f6368;
+      opacity: 0.65;
+      transition: opacity 0.15s, color 0.15s;
+      z-index: 2;
+    }
+    .gmap-locate-btn:hover {
+      opacity: 1;
+      color: #1a73e8;
+    }
+    .gmap-locate-btn.locating {
+      cursor: default;
+      opacity: 1;
+    }
+    @keyframes gspin {
+      to { transform: rotate(360deg); }
+    }
+    .gmap-locate-spin {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid #ccc;
+      border-top-color: #4285f4;
+      border-radius: 50%;
+      animation: gspin 0.7s linear infinite;
+      vertical-align: middle;
     }
 
     .gmap-suggestions {
@@ -474,6 +588,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   destLoading = false;
   originFocused = false;
   destFocused = false;
+  // Current-location button loading flags
+  locatingOrigin = false;
+  locatingDest   = false;
 
   mapReady = false;
   isBrowser: boolean;
@@ -1010,6 +1127,126 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
       if (this.destSuggestions.length === 0) this.destSessionToken = null;
       this.cdr.detectChanges();
     }, 200);
+  }
+
+  // ── Current location ─────────────────────────────────────────────────────────
+
+  /**
+   * Obtain the device's GPS position and use it as the origin (target='origin')
+   * or destination (target='dest').
+   *
+   * Reverse-geocoding is done by asking Directions API with origin=destination=
+   * the LatLng — the same zero-distance trick already used in resolveCoordFromPlaceId.
+   * This keeps us entirely within the Directions API quota and avoids enabling
+   * the Geocoding API on the project.
+   */
+  useCurrentLocation(target: 'origin' | 'dest'): void {
+    if (!this.isBrowser || !navigator.geolocation) {
+      this.localErrorMessage.set('Geolocation is not supported by your browser.');
+      return;
+    }
+    if (target === 'origin') this.locatingOrigin = true;
+    else                     this.locatingDest   = true;
+    this.localErrorMessage.set('');
+    this.cdr.detectChanges();
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const latLng = new google.maps.LatLng(lat, lng);
+        const coord  = { lat, lng };
+
+        if (target === 'origin') {
+          this.locatingOrigin = false;
+          this.localPointA.set(coord);
+          this.placeMarkerA(latLng);
+          this.gmap.panTo(latLng);
+          // Reverse-geocode via Directions same-point trick to get a human label
+          this.reverseGeocodeLatLng(latLng, (label: string) => {
+            this.searchOrigin = label;
+            this.pendingOriginPlaceId = null; // it's a raw LatLng, not a place_id
+            if (this.localPointB()) this.calculateRoute();
+            this.cdr.detectChanges();
+          });
+        } else {
+          this.locatingDest = false;
+          this.localPointB.set(coord);
+          this.placeMarkerB(latLng);
+          this.reverseGeocodeLatLng(latLng, (label: string) => {
+            this.searchDestination = label;
+            this.pendingDestPlaceId = null;
+            if (this.localPointA()) this.calculateRoute();
+            this.cdr.detectChanges();
+          });
+        }
+        this.cdr.detectChanges();
+      },
+      (err) => {
+        if (target === 'origin') this.locatingOrigin = false;
+        else                     this.locatingDest   = false;
+        this.localErrorMessage.set(
+          err.code === 1 ? 'Location access denied. Please allow location in browser settings.'
+                        : 'Could not get your location. Try again.'
+        );
+        this.cdr.detectChanges();
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  /**
+   * Reverse-geocode a LatLng to a readable address using the Directions API
+   * (origin = destination = same coordinates). Reads the start_address from
+   * the first leg — no Geocoding API needed.
+   */
+  private reverseGeocodeLatLng(latLng: any, cb: (label: string) => void): void {
+    this.directionsService.route(
+      {
+        origin: latLng,
+        destination: latLng,
+        travelMode: google.maps.TravelMode.DRIVING,
+      },
+      (result: any, status: any) => {
+        if (status === google.maps.DirectionsStatus.OK) {
+          cb(result.routes[0].legs[0].start_address ?? `${latLng.lat().toFixed(5)}, ${latLng.lng().toFixed(5)}`);
+        } else {
+          // Fallback to raw coordinates if Directions declines a zero-distance trip
+          cb(`${latLng.lat().toFixed(5)}, ${latLng.lng().toFixed(5)}`);
+        }
+      }
+    );
+  }
+
+  // ── Clear individual point ────────────────────────────────────────────────────
+
+  clearPoint(target: 'origin' | 'dest'): void {
+    if (target === 'origin') {
+      this.searchOrigin = '';
+      this.originSuggestions = [];
+      this.pendingOriginPlaceId = null;
+      this.localPointA.set(null);
+      if (this.markerA) {
+        this.markerA.setMap(null);
+        this.markerA = null;
+      }
+    } else {
+      this.searchDestination = '';
+      this.destSuggestions = [];
+      this.pendingDestPlaceId = null;
+      this.localPointB.set(null);
+      if (this.markerB) {
+        this.markerB.setMap(null);
+        this.markerB = null;
+      }
+    }
+    // Clear any drawn route since one point is gone
+    if (this.directionsRenderer) {
+      this.directionsRenderer.setDirections({ routes: [] });
+    }
+    this.localCalculatedDistance.set(0);
+    this.emitState();
+    this.cdr.detectChanges();
   }
 
   // ── Emit ─────────────────────────────────────────────────────────────────────
