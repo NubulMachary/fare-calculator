@@ -16,9 +16,9 @@ export class App implements OnInit {
   distance = signal<number | string>('');
   mileage = signal<number | string>(7);
   fuelPrice = signal<number | string>(90);
-  driverExpense = signal<number | string>(1300);
+  driverExpense = signal<number | string>('');
   tollExpense = signal<number | string>('');
-  profit = signal<number | string>(5000);
+  profit = signal<number | string>('');
   // New: total booking days (defaults to 1)
   bookingDays = signal<number | string>(1);
 

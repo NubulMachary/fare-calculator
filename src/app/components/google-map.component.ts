@@ -34,6 +34,15 @@ const GMAPS_CALLBACK = '__gmapsReady__';
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
+  <!-- Floating tooltip rendered at host root — outside all overflow:hidden containers -->
+  @if (tooltip.visible) {
+  <div class="gmap-float-tooltip"
+    [style.top.px]="tooltip.top"
+    [style.left.px]="tooltip.left">
+    {{ tooltip.text }}
+  </div>
+  }
+
   <div class="gmap-wrapper">
 
     <!-- ── Loading state ── -->
@@ -180,8 +189,11 @@ const GMAPS_CALLBACK = '__gmapsReady__';
             <span class="gmap-dot gmap-dot-a">A</span>
             <div class="gmap-info-text">
               <span class="gmap-info-label">From</span>
-              <span class="gmap-info-name">{{ searchOrigin || 'Point A' }}</span>
-              <span class="gmap-info-coords">{{ localPointA()!.lat.toFixed(4) }}, {{ localPointA()!.lng.toFixed(4) }}</span>
+              <span class="gmap-info-name"
+                (mouseenter)="showTooltip($event, searchOrigin || 'Point A')"
+                (mouseleave)="hideTooltip()"
+                (click)="toggleTooltip($event, searchOrigin || 'Point A')">{{ searchOrigin || 'Point A' }}</span>
+              <!-- <span class="gmap-info-coords">{{ localPointA()!.lat.toFixed(4) }}, {{ localPointA()!.lng.toFixed(4) }}</span> -->
             </div>
           </div>
           <span class="gmap-info-arrow">→</span>
@@ -190,8 +202,11 @@ const GMAPS_CALLBACK = '__gmapsReady__';
             <span class="gmap-dot gmap-dot-b">B</span>
             <div class="gmap-info-text">
               <span class="gmap-info-label">To</span>
-              <span class="gmap-info-name">{{ searchDestination || 'Point B' }}</span>
-              <span class="gmap-info-coords">{{ localPointB()!.lat.toFixed(4) }}, {{ localPointB()!.lng.toFixed(4) }}</span>
+              <span class="gmap-info-name"
+                (mouseenter)="showTooltip($event, searchDestination || 'Point B')"
+                (mouseleave)="hideTooltip()"
+                (click)="toggleTooltip($event, searchDestination || 'Point B')">{{ searchDestination || 'Point B' }}</span>
+              <!-- <span class="gmap-info-coords">{{ localPointB()!.lat.toFixed(4) }}, {{ localPointB()!.lng.toFixed(4) }}</span> -->
             </div>
           </div>
           <!-- Distance -->
@@ -225,7 +240,9 @@ const GMAPS_CALLBACK = '__gmapsReady__';
     <!-- Error -->
     @if (localErrorMessage()) {
     <div class="gmap-error">
-      <span>⚠</span> {{ localErrorMessage() }}
+      <span class="gmap-error-icon">⚠️</span>
+      <span class="gmap-error-msg">{{ localErrorMessage() }}</span>
+      <button class="gmap-error-close" (click)="localErrorMessage.set('')" title="Dismiss">✕</button>
     </div>
     }
 
@@ -235,7 +252,7 @@ const GMAPS_CALLBACK = '__gmapsReady__';
     .gmap-wrapper {
       display: flex;
       flex-direction: column;
-      height: 580px;
+      height: 100%;
       border-radius: 12px;
       overflow: hidden;
       background: #f7f8fa;
@@ -263,9 +280,9 @@ const GMAPS_CALLBACK = '__gmapsReady__';
     @keyframes gspin { to { transform: rotate(360deg); } }
 
     /* Search panel */
+    /* padding: 0.65rem 0.75rem 0.5rem; */
     .gmap-search-panel {
       flex-shrink: 0;
-      padding: 0.65rem 0.75rem 0.5rem;
       background: #fff;
       border-bottom: 1px solid #e5e7eb;
       opacity: 0.5;
@@ -275,6 +292,7 @@ const GMAPS_CALLBACK = '__gmapsReady__';
     .gmap-search-panel.ready {
       opacity: 1;
       pointer-events: auto;
+      padding-bottom: 10px;
     }
 
     .gmap-search-row {
@@ -481,7 +499,7 @@ const GMAPS_CALLBACK = '__gmapsReady__';
     /* Info overlay */
     .gmap-info-overlay {
       position: absolute;
-      bottom: 0; left: 0; right: 0;
+      top: 10px; left: 0; right: 0;
       z-index: 1000;
       padding: 0 0.6rem 0.6rem;
     }
@@ -492,16 +510,20 @@ const GMAPS_CALLBACK = '__gmapsReady__';
       padding: 0.65rem 0.85rem;
       backdrop-filter: blur(4px);
       display: flex;
+      flex-direction: row;
       align-items: center;
+      flex-wrap: nowrap;
       gap: 0.5rem;
-      flex-wrap: wrap;
+      overflow: visible;
     }
     .gmap-info-point {
       display: flex;
+      flex-direction: row;
       align-items: center;
       gap: 0.45rem;
       flex: 1;
       min-width: 0;
+      overflow: visible;
     }
     .gmap-dot {
       width: 26px; height: 26px;
@@ -514,7 +536,7 @@ const GMAPS_CALLBACK = '__gmapsReady__';
     .gmap-dot-b { background: #ea4335; }
     .gmap-info-text {
       display: flex; flex-direction: column;
-      min-width: 0; overflow: hidden;
+      min-width: 0; overflow: visible;
     }
     .gmap-info-label {
       font-size: 0.62rem; font-weight: 700;
@@ -526,6 +548,28 @@ const GMAPS_CALLBACK = '__gmapsReady__';
       color: #1a1a2e; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis;
       max-width: 150px;
+      display: block;
+      cursor: pointer;
+    }
+
+    /* Floating tooltip — rendered at component root, outside overflow containers */
+    .gmap-float-tooltip {
+      position: fixed;
+      background: rgba(30,30,30,0.93);
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 400;
+      white-space: normal;
+      word-break: break-word;
+      max-width: 240px;
+      min-width: 100px;
+      padding: 0.4rem 0.7rem;
+      border-radius: 7px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      pointer-events: none;
+      z-index: 9999;
+      line-height: 1.5;
+      transform: translateX(-50%);
     }
     .gmap-info-coords {
       font-size: 0.68rem; color: #999;
@@ -548,12 +592,23 @@ const GMAPS_CALLBACK = '__gmapsReady__';
     /* Error */
     .gmap-error {
       flex-shrink: 0;
-      display: flex; align-items: center; gap: 0.5rem;
-      padding: 0.5rem 0.85rem;
-      background: #fff1f1; color: #c00;
-      border-top: 1px solid #fcc;
+      display: flex; align-items: flex-start; gap: 0.45rem;
+      padding: 0.6rem 0.85rem;
+      background: #fff1f1; color: #b00;
+      border-top: 2px solid #f5a0a0;
       font-size: 0.82rem;
+      line-height: 1.45;
     }
+    .gmap-error-icon { flex-shrink: 0; font-size: 1rem; margin-top: 1px; }
+    .gmap-error-msg  { flex: 1; }
+    .gmap-error-close {
+      flex-shrink: 0;
+      background: none; border: none;
+      color: #b00; font-size: 0.9rem;
+      cursor: pointer; padding: 0 0.1rem;
+      line-height: 1; opacity: 0.7;
+    }
+    .gmap-error-close:hover { opacity: 1; }
   `]
 })
 export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterViewInit {
@@ -591,6 +646,41 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   // Current-location button loading flags
   locatingOrigin = false;
   locatingDest   = false;
+
+  // Floating tooltip state — works on both desktop (hover) and mobile (tap)
+  tooltip: { visible: boolean; text: string; top: number; left: number } = {
+    visible: false, text: '', top: 0, left: 0
+  };
+  private tooltipTimeout: any = null;
+
+  showTooltip(event: MouseEvent | TouchEvent, text: string): void {
+    const el = event.currentTarget as HTMLElement;
+    const rect = el.getBoundingClientRect();
+    this.tooltip = {
+      visible: true,
+      text,
+      top: rect.top - 8,          // 8px above the element top
+      left: rect.left + rect.width / 2
+    };
+    this.cdr.detectChanges();
+  }
+
+  hideTooltip(): void {
+    if (this.tooltipTimeout) { clearTimeout(this.tooltipTimeout); this.tooltipTimeout = null; }
+    this.tooltip = { ...this.tooltip, visible: false };
+    this.cdr.detectChanges();
+  }
+
+  toggleTooltip(event: MouseEvent | TouchEvent, text: string): void {
+    if (this.tooltip.visible && this.tooltip.text === text) {
+      this.hideTooltip();
+    } else {
+      this.showTooltip(event, text);
+      // Auto-dismiss after 3 s (for mobile tap)
+      if (this.tooltipTimeout) clearTimeout(this.tooltipTimeout);
+      this.tooltipTimeout = setTimeout(() => this.hideTooltip(), 3000);
+    }
+  }
 
   mapReady = false;
   isBrowser: boolean;
@@ -734,12 +824,21 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     this.cdr.detectChanges();
 
     this.gmap = new google.maps.Map(this.mapContainer.nativeElement, {
-      center: { lat: 20.5937, lng: 78.9629 }, // India default
+      center: { lat: 20.5937, lng: 78.9629 }, // India centre
       zoom: 5,
       mapTypeControl: false,
       fullscreenControl: false,
       streetViewControl: false,
       gestureHandling: 'greedy',
+      restriction: {
+        latLngBounds: {
+          north: 37.6,   // Jammu & Kashmir top
+          south: 6.4,    // Kanyakumari bottom
+          west:  67.0,   // Gujarat west
+          east:  97.5,   // Arunachal Pradesh east
+        },
+        strictBounds: false,   // soft-restrict: user can pan slightly outside
+      },
     });
 
     // Services
@@ -1060,11 +1159,12 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
       // ── New Places API ─────────────────────────────────────────────────────
       // Passing sessionToken groups all keystrokes + final selection into one
       // billable session — dramatically cheaper than per-request billing.
+      // includedRegionCodes: ['in'] — hard-restricts results to India only.
       const request = {
         input: query,
         language: 'en',
         region: 'in',
-        includedPrimaryTypes: [],
+        includedRegionCodes: ['in'],
         sessionToken: target === 'origin' ? this.originSessionToken : this.destSessionToken,
       };
       const { suggestions } =
@@ -1281,14 +1381,37 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
       (err) => {
         if (target === 'origin') this.locatingOrigin = false;
         else                     this.locatingDest   = false;
-        this.localErrorMessage.set(
-          err.code === 1
-            ? 'Location access denied. On iPhone: Settings → Safari → Location → Allow.'
-            : 'Could not get your location. Try again.'
-        );
+
+        let msg = '';
+        if (err.code === 1) {
+          // PERMISSION_DENIED
+          const isHttps = location.protocol === 'https:';
+          if (!isHttps) {
+            msg = 'Location blocked: this page is on HTTP. Please open the site over HTTPS.';
+          } else {
+            const ua = navigator.userAgent;
+            if (/iphone|ipad|ipod/i.test(ua)) {
+              msg = 'Location denied. On iPhone: Settings → Privacy & Security → Location Services → Safari → While Using.';
+            } else if (/android/i.test(ua)) {
+              msg = 'Location denied. Tap the 🔒 icon in your browser address bar and allow Location.';
+            } else {
+              msg = 'Location denied. Click the 🔒 icon in the browser address bar and allow Location access.';
+            }
+          }
+        } else if (err.code === 2) {
+          // POSITION_UNAVAILABLE
+          msg = 'Location unavailable. Check your device GPS or network and try again.';
+        } else if (err.code === 3) {
+          // TIMEOUT
+          msg = 'Location request timed out. Move to an open area and try again.';
+        } else {
+          msg = 'Could not get your location. Try again.';
+        }
+
+        this.localErrorMessage.set(msg);
         this.cdr.detectChanges();
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 12000 }
     );
   }
 
