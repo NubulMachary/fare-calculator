@@ -758,16 +758,22 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   private onMapClick(latLng: any): void {
     const pos = { lat: latLng.lat(), lng: latLng.lng() };
     if (!this.localPointA()) {
+      // Only origin set — reverse-geocode for the label, no route yet
       this.localPointA.set(pos);
-      this.pendingOriginPlaceId = null; // map-click supersedes any autocomplete place_id
+      this.pendingOriginPlaceId = null;
       this.placeMarkerA(latLng);
+      this.reverseGeocodeLatLng(latLng, (label) => {
+        this.searchOrigin = label;
+        this.cdr.detectChanges();
+      });
     } else if (!this.localPointB()) {
+      // Both points now set — calculateRoute will fill both labels via start/end_address
       this.localPointB.set(pos);
       this.pendingDestPlaceId = null;
       this.placeMarkerB(latLng);
       this.calculateRoute();
     } else {
-      // Both set — move B
+      // Move B — calculateRoute will refresh the To label
       this.localPointB.set(pos);
       this.pendingDestPlaceId = null;
       this.markerB.setPosition(latLng);
@@ -791,8 +797,18 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
       title: 'Origin (drag to move)'
     });
     this.markerA.addListener('dragend', (e: any) => {
-      this.localPointA.set({ lat: e.latLng.lat(), lng: e.latLng.lng() });
-      if (this.localPointB()) this.calculateRoute();
+      const latLng = e.latLng;
+      this.localPointA.set({ lat: latLng.lat(), lng: latLng.lng() });
+      this.pendingOriginPlaceId = null;
+      if (this.localPointB()) {
+        // calculateRoute will update both labels via start/end_address
+        this.calculateRoute(undefined, undefined, true);
+      } else {
+        this.reverseGeocodeLatLng(latLng, (label) => {
+          this.searchOrigin = label;
+          this.cdr.detectChanges();
+        });
+      }
       this.cdr.detectChanges();
     });
   }
@@ -811,8 +827,18 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
       title: 'Destination (drag to move)'
     });
     this.markerB.addListener('dragend', (e: any) => {
-      this.localPointB.set({ lat: e.latLng.lat(), lng: e.latLng.lng() });
-      this.calculateRoute();
+      const latLng = e.latLng;
+      this.localPointB.set({ lat: latLng.lat(), lng: latLng.lng() });
+      this.pendingDestPlaceId = null;
+      if (this.localPointA()) {
+        // calculateRoute will update both labels via start/end_address
+        this.calculateRoute(undefined, undefined, true);
+      } else {
+        this.reverseGeocodeLatLng(latLng, (label) => {
+          this.searchDestination = label;
+          this.cdr.detectChanges();
+        });
+      }
       this.cdr.detectChanges();
     });
   }
@@ -859,7 +885,8 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
    */
   private calculateRoute(
     originRef?: { lat: number; lng: number } | string,
-    destinationRef?: { lat: number; lng: number } | string
+    destinationRef?: { lat: number; lng: number } | string,
+    refreshLabels = false
   ): void {
     // Fall back to stored signals when not explicitly passed
     const oRef = originRef  ?? this.localPointA();
@@ -888,8 +915,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
           this.directionsRenderer.setDirections(result);
           const leg = result.routes[0].legs[0];
 
-          // Extract resolved LatLngs from the response — this is the key
-          // part that removes the need for a separate Geocode API call.
+          // Extract resolved LatLngs from the response
           const startLatLng = leg.start_location;
           const endLatLng   = leg.end_location;
 
@@ -902,6 +928,17 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
           else this.placeMarkerA(startLatLng);
           if (this.markerB) this.markerB.setPosition(endLatLng);
           else this.placeMarkerB(endLatLng);
+
+          // Populate input labels from the Directions response.
+          // leg.start_address / end_address are always returned for free.
+          // Only set if the field is empty (map-click/drag) — don't overwrite
+          // a place name the user picked from autocomplete.
+          if ((!this.searchOrigin || refreshLabels) && leg.start_address) {
+            this.searchOrigin = leg.start_address;
+          }
+          if ((!this.searchDestination || refreshLabels) && leg.end_address) {
+            this.searchDestination = leg.end_address;
+          }
 
           const distanceKm = leg.distance.value / 1000; // metres → km
           this.localBaseDistance.set(Math.round(distanceKm * 100) / 100);
@@ -1186,8 +1223,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
         if (target === 'origin') this.locatingOrigin = false;
         else                     this.locatingDest   = false;
         this.localErrorMessage.set(
-          err.code === 1 ? 'Location access denied. Please allow location in browser settings.'
-                        : 'Could not get your location. Try again.'
+          err.code === 1
+            ? 'Location access denied. On iPhone: Settings → Safari → Location → Allow.'
+            : 'Could not get your location. Try again.'
         );
         this.cdr.detectChanges();
       },
