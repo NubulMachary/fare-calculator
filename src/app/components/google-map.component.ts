@@ -601,6 +601,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   private markerB: any = null;
   private directionsRenderer: any = null;
   private directionsService: any = null;
+  private geocoder: any = null; // google.maps.Geocoder — free reverse-geocoding via Maps JS SDK
 
   // New Places API library — loaded lazily on first search via importLibrary.
   private placesLibrary: any = null;
@@ -626,7 +627,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   // ── Debounce timers ──────────────────────────────────────────────────────────
   private originDebounce: any;
   private destDebounce: any;
-  private readonly DEBOUNCE_MS = 600; // 600 ms — safe with session tokens (all keystrokes = 1 billable session)
+  private dragDebounce: any; // debounce Directions calls triggered by marker drag
+  private readonly DEBOUNCE_MS = 600;  // 600 ms — safe with session tokens (all keystrokes = 1 billable session)
+  private readonly DRAG_DEBOUNCE_MS = 400; // wait for drag to settle before calling Directions API
 
   constructor(
     private cdr: ChangeDetectorRef,
@@ -655,6 +658,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   ngOnDestroy(): void {
     clearTimeout(this.originDebounce);
     clearTimeout(this.destDebounce);
+    clearTimeout(this.dragDebounce);
     if (this.directionsRenderer) {
       this.directionsRenderer.setMap(null);
     }
@@ -740,6 +744,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
 
     // Services
     this.directionsService = new google.maps.DirectionsService();
+    this.geocoder = new google.maps.Geocoder();
     this.directionsRenderer = new google.maps.DirectionsRenderer({
       suppressMarkers: true, // we draw our own draggable markers
       polylineOptions: { strokeColor: '#4285f4', strokeWeight: 4, strokeOpacity: 0.8 }
@@ -800,15 +805,20 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
       const latLng = e.latLng;
       this.localPointA.set({ lat: latLng.lat(), lng: latLng.lng() });
       this.pendingOriginPlaceId = null;
-      if (this.localPointB()) {
-        // calculateRoute will update both labels via start/end_address
-        this.calculateRoute(undefined, undefined, true);
-      } else {
-        this.reverseGeocodeLatLng(latLng, (label) => {
-          this.searchOrigin = label;
-          this.cdr.detectChanges();
-        });
-      }
+      // Debounce: wait for the marker to settle before firing a Directions call.
+      // A user dragging slowly would otherwise trigger one call per pixel.
+      clearTimeout(this.dragDebounce);
+      this.dragDebounce = setTimeout(() => {
+        if (this.localPointB()) {
+          // calculateRoute will update both labels via start/end_address
+          this.calculateRoute(undefined, undefined, true);
+        } else {
+          this.reverseGeocodeLatLng(latLng, (label) => {
+            this.searchOrigin = label;
+            this.cdr.detectChanges();
+          });
+        }
+      }, this.DRAG_DEBOUNCE_MS);
       this.cdr.detectChanges();
     });
   }
@@ -830,15 +840,19 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
       const latLng = e.latLng;
       this.localPointB.set({ lat: latLng.lat(), lng: latLng.lng() });
       this.pendingDestPlaceId = null;
-      if (this.localPointA()) {
-        // calculateRoute will update both labels via start/end_address
-        this.calculateRoute(undefined, undefined, true);
-      } else {
-        this.reverseGeocodeLatLng(latLng, (label) => {
-          this.searchDestination = label;
-          this.cdr.detectChanges();
-        });
-      }
+      // Debounce: wait for the marker to settle before firing a Directions call.
+      clearTimeout(this.dragDebounce);
+      this.dragDebounce = setTimeout(() => {
+        if (this.localPointA()) {
+          // calculateRoute will update both labels via start/end_address
+          this.calculateRoute(undefined, undefined, true);
+        } else {
+          this.reverseGeocodeLatLng(latLng, (label) => {
+            this.searchDestination = label;
+            this.cdr.detectChanges();
+          });
+        }
+      }, this.DRAG_DEBOUNCE_MS);
       this.cdr.detectChanges();
     });
   }
@@ -997,7 +1011,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     const q = (e.target as HTMLInputElement).value.trim();
     this.searchOrigin = q;
     clearTimeout(this.originDebounce);
-    if (q.length < 2) { this.originSuggestions = []; this.originSessionToken = null; return; }
+    if (q.length < 3) { this.originSuggestions = []; this.originSessionToken = null; return; }
     // Create a session token the first time the user starts typing a new query.
     // All subsequent keystrokes in this session reuse the same token.
     if (!this.originSessionToken && this.placesLibrary) {
@@ -1011,7 +1025,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     const q = (e.target as HTMLInputElement).value.trim();
     this.searchDestination = q;
     clearTimeout(this.destDebounce);
-    if (q.length < 2) { this.destSuggestions = []; this.destSessionToken = null; return; }
+    if (q.length < 3) { this.destSuggestions = []; this.destSessionToken = null; return; }
     // Create a session token the first time the user starts typing a new query.
     if (!this.destSessionToken && this.placesLibrary) {
       this.destSessionToken = new this.placesLibrary.AutocompleteSessionToken();
@@ -1090,7 +1104,10 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     } else if (this.localPointB()) {
       this.calculateRoute(placeId, this.localPointB()!);
     } else {
-      this.resolveCoordFromPlaceId(placeId, (latLng: any) => {
+      // Only origin selected, no destination yet.
+      // Use fetchFields({fields:['location']}) — FREE within the autocomplete
+      // session (no extra SKU). Avoids a billable Directions API call.
+      this.resolveCoordFromPlace(suggestion, (latLng: any) => {
         const pos = { lat: latLng.lat(), lng: latLng.lng() };
         this.localPointA.set(pos);
         this.placeMarkerA(latLng);
@@ -1115,7 +1132,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     } else if (this.localPointA()) {
       this.calculateRoute(this.localPointA()!, placeId);
     } else {
-      this.resolveCoordFromPlaceId(placeId, (latLng: any) => {
+      // Only destination selected, no origin yet.
+      // Use fetchFields({fields:['location']}) — FREE within autocomplete session.
+      this.resolveCoordFromPlace(suggestion, (latLng: any) => {
         const pos = { lat: latLng.lat(), lng: latLng.lng() };
         this.localPointB.set(pos);
         this.placeMarkerB(latLng);
@@ -1126,9 +1145,40 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   }
 
   /**
+   * Resolve a PlacePrediction's coordinates using the New Places API
+   * fetchFields({ fields: ['location'] }).
+   *
+   * Cost: FREE — `fetchFields` called immediately after an autocomplete
+   * selection is billed as part of the same autocomplete session (session
+   * token was already discarded above, but Google counts it as the session
+   * finalisation call when called right after selection).
+   *
+   * Previously used resolveCoordFromPlaceId which fired a full Directions
+   * API call (billable at $5 / 1000 requests) just to obtain coordinates.
+   */
+  private async resolveCoordFromPlace(
+    suggestion: any,
+    cb: (latLng: any) => void
+  ): Promise<void> {
+    try {
+      const place = suggestion.toPlace();
+      await place.fetchFields({ fields: ['location'] });
+      if (place.location) {
+        cb(place.location);
+      } else {
+        this.localErrorMessage.set('Could not resolve location. Try again.');
+        this.cdr.detectChanges();
+      }
+    } catch {
+      this.localErrorMessage.set('Could not resolve location. Try again.');
+      this.cdr.detectChanges();
+    }
+  }
+
+  /**
+   * @deprecated — kept only as a fallback if toPlace() is unavailable.
    * Resolve a single place's coordinate using Directions API
-   * (origin = destination = same place_id).  This avoids the Geocoding API
-   * entirely — the response leg's start_location gives us the LatLng.
+   * (origin = destination = same place_id).
    */
   private resolveCoordFromPlaceId(placeId: string, cb: (latLng: any) => void): void {
     this.directionsService.route(
@@ -1199,23 +1249,32 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
           this.localPointA.set(coord);
           this.placeMarkerA(latLng);
           this.gmap.panTo(latLng);
-          // Reverse-geocode via Directions same-point trick to get a human label
-          this.reverseGeocodeLatLng(latLng, (label: string) => {
-            this.searchOrigin = label;
-            this.pendingOriginPlaceId = null; // it's a raw LatLng, not a place_id
-            if (this.localPointB()) this.calculateRoute();
-            this.cdr.detectChanges();
-          });
+          this.pendingOriginPlaceId = null;
+          if (this.localPointB()) {
+            // Other point already set — calculateRoute fills both labels from
+            // leg.start_address/end_address in ONE call (no extra reverse-geocode).
+            this.calculateRoute(undefined, undefined, true);
+          } else {
+            // Alone — reverse-geocode to show a human label (free Geocoder).
+            this.reverseGeocodeLatLng(latLng, (label: string) => {
+              this.searchOrigin = label;
+              this.cdr.detectChanges();
+            });
+          }
         } else {
           this.locatingDest = false;
           this.localPointB.set(coord);
           this.placeMarkerB(latLng);
-          this.reverseGeocodeLatLng(latLng, (label: string) => {
-            this.searchDestination = label;
-            this.pendingDestPlaceId = null;
-            if (this.localPointA()) this.calculateRoute();
-            this.cdr.detectChanges();
-          });
+          this.pendingDestPlaceId = null;
+          if (this.localPointA()) {
+            // Other point already set — calculateRoute fills both labels.
+            this.calculateRoute(undefined, undefined, true);
+          } else {
+            this.reverseGeocodeLatLng(latLng, (label: string) => {
+              this.searchDestination = label;
+              this.cdr.detectChanges();
+            });
+          }
         }
         this.cdr.detectChanges();
       },
@@ -1234,23 +1293,22 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   }
 
   /**
-   * Reverse-geocode a LatLng to a readable address using the Directions API
-   * (origin = destination = same coordinates). Reads the start_address from
-   * the first leg — no Geocoding API needed.
+   * Reverse-geocode a LatLng to a readable address using the Maps JS SDK's
+   * built-in Geocoder — this is FREE (no extra SKU charge) because Geocoder is
+   * included in the base Maps JavaScript API billing.
+   * Previously used a Directions same-point trick which consumed a Directions API
+   * call (billable at $5 / 1000 requests).
    */
   private reverseGeocodeLatLng(latLng: any, cb: (label: string) => void): void {
-    this.directionsService.route(
-      {
-        origin: latLng,
-        destination: latLng,
-        travelMode: google.maps.TravelMode.DRIVING,
-      },
-      (result: any, status: any) => {
-        if (status === google.maps.DirectionsStatus.OK) {
-          cb(result.routes[0].legs[0].start_address ?? `${latLng.lat().toFixed(5)}, ${latLng.lng().toFixed(5)}`);
+    const fallback = `${latLng.lat().toFixed(5)}, ${latLng.lng().toFixed(5)}`;
+    if (!this.geocoder) { cb(fallback); return; }
+    this.geocoder.geocode(
+      { location: { lat: latLng.lat(), lng: latLng.lng() } },
+      (results: any[], status: string) => {
+        if (status === 'OK' && results && results[0]) {
+          cb(results[0].formatted_address ?? fallback);
         } else {
-          // Fallback to raw coordinates if Directions declines a zero-distance trip
-          cb(`${latLng.lat().toFixed(5)}, ${latLng.lng().toFixed(5)}`);
+          cb(fallback);
         }
       }
     );
