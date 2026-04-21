@@ -733,6 +733,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   private dragDebounce: any; // debounce Directions calls triggered by marker drag
   private readonly DEBOUNCE_MS = 600;  // 600 ms — safe with session tokens (all keystrokes = 1 billable session)
   private readonly DRAG_DEBOUNCE_MS = 400; // wait for drag to settle before calling Directions API
+  private routeRequestId = 0;
+  private originResolveRequestId = 0;
+  private destResolveRequestId = 0;
 
   constructor(
     private cdr: ChangeDetectorRef,
@@ -748,7 +751,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['mapState'] && this.mapState) {
+    if (changes['mapState']) {
       this.restoreFromMapState(this.mapState);
     }
   }
@@ -770,18 +773,71 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   // ── State restoration ────────────────────────────────────────────────────────
 
   private restoreFromMapState(state: typeof this.mapState): void {
-    if (!state) return;
+    this.pendingOriginPlaceId = null;
+    this.pendingDestPlaceId = null;
+    this.originSuggestions = [];
+    this.destSuggestions = [];
+    this.originFocused = false;
+    this.destFocused = false;
+
+    if (!state) {
+      this.searchOrigin = '';
+      this.searchDestination = '';
+      this.localPointA.set(null);
+      this.localPointB.set(null);
+      this.localCalculatedDistance.set(0);
+      this.localBaseDistance.set(0);
+      this.localIsRoundTrip.set(true);
+      this.syncMapToCurrentState();
+      return;
+    }
+
     this.searchOrigin = state.origin || '';
     this.searchDestination = state.destination || '';
-    if (state.isRoundTrip !== undefined) this.localIsRoundTrip.set(state.isRoundTrip);
+    this.localIsRoundTrip.set(state.isRoundTrip ?? true);
     if (state.distance > 0) {
       this.localCalculatedDistance.set(state.distance);
       this.localBaseDistance.set(
         this.localIsRoundTrip() ? state.distance / 2 : state.distance
       );
+    } else {
+      this.localCalculatedDistance.set(0);
+      this.localBaseDistance.set(0);
     }
-    if (state.pointA) this.localPointA.set(state.pointA);
-    if (state.pointB) this.localPointB.set(state.pointB);
+    this.localPointA.set(state.pointA ?? null);
+    this.localPointB.set(state.pointB ?? null);
+    this.syncMapToCurrentState();
+  }
+
+  private syncMapToCurrentState(): void {
+    if (!this.mapReady || !this.gmap) return;
+
+    const pointA = this.localPointA();
+    const pointB = this.localPointB();
+
+    if (this.markerA && !pointA) {
+      this.markerA.setMap(null);
+      this.markerA = null;
+    }
+    if (this.markerB && !pointB) {
+      this.markerB.setMap(null);
+      this.markerB = null;
+    }
+
+    if (this.directionsRenderer && (!pointA || !pointB)) {
+      this.directionsRenderer.setDirections({ routes: [] });
+    }
+
+    if (pointA) this.placeMarkerA(new google.maps.LatLng(pointA.lat, pointA.lng));
+    if (pointB) this.placeMarkerB(new google.maps.LatLng(pointB.lat, pointB.lng));
+
+    if (pointA && pointB) {
+      this.fitMapToPoints(pointA, pointB);
+    } else if (pointA) {
+      this.centerMapOnPoint(pointA);
+    } else if (pointB) {
+      this.centerMapOnPoint(pointB);
+    }
   }
 
   // ── Google Maps loader ───────────────────────────────────────────────────────
@@ -859,6 +915,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     this.geocoder = new google.maps.Geocoder();
     this.directionsRenderer = new google.maps.DirectionsRenderer({
       suppressMarkers: true, // we draw our own draggable markers
+      preserveViewport: true,
       polylineOptions: { strokeColor: '#4285f4', strokeWeight: 4, strokeOpacity: 0.8 }
     });
     this.directionsRenderer.setMap(this.gmap);
@@ -991,9 +1048,32 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     if (a && b) {
       this.calculateRoute();
     } else if (a) {
-      this.gmap.setCenter({ lat: a.lat, lng: a.lng });
-      this.gmap.setZoom(10);
+      this.centerMapOnPoint(a);
+    } else if (b) {
+      this.centerMapOnPoint(b);
     }
+  }
+
+  private centerMapOnPoint(point: { lat: number; lng: number }): void {
+    this.gmap.setCenter({ lat: point.lat, lng: point.lng });
+    this.gmap.setZoom(14);
+  }
+
+  private fitMapToPoints(
+    pointA: { lat: number; lng: number },
+    pointB: { lat: number; lng: number }
+  ): void {
+    const bounds = new google.maps.LatLngBounds();
+    bounds.extend(new google.maps.LatLng(pointA.lat, pointA.lng));
+    bounds.extend(new google.maps.LatLng(pointB.lat, pointB.lng));
+    this.gmap.fitBounds(bounds, 80);
+
+    google.maps.event.addListenerOnce(this.gmap, 'bounds_changed', () => {
+      const zoom = this.gmap.getZoom();
+      if (typeof zoom === 'number' && zoom > 15) {
+        this.gmap.setZoom(15);
+      }
+    });
   }
 
   // ── Directions / Distance ────────────────────────────────────────────────────
@@ -1028,6 +1108,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     this.localIsLoading.set(true);
     this.localErrorMessage.set('');
     this.cdr.detectChanges();
+    const requestId = ++this.routeRequestId;
 
     this.directionsService.route(
       {
@@ -1036,6 +1117,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
         travelMode: google.maps.TravelMode.DRIVING,
       },
       (result: any, status: any) => {
+        if (requestId !== this.routeRequestId) return;
         this.localIsLoading.set(false);
         if (status === google.maps.DirectionsStatus.OK) {
           this.directionsRenderer.setDirections(result);
@@ -1054,6 +1136,11 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
           else this.placeMarkerA(startLatLng);
           if (this.markerB) this.markerB.setPosition(endLatLng);
           else this.placeMarkerB(endLatLng);
+
+          this.fitMapToPoints(
+            { lat: startLatLng.lat(), lng: startLatLng.lng() },
+            { lat: endLatLng.lat(), lng: endLatLng.lng() }
+          );
 
           // Populate input labels from the Directions response.
           // leg.start_address / end_address are always returned for free.
@@ -1077,6 +1164,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
           const a = this.localPointA();
           const b = this.localPointB();
           if (a && b) {
+            this.fitMapToPoints(a, b);
             const haversine = this.haversineKm(a, b);
             this.localBaseDistance.set(Math.round(haversine * 100) / 100);
             const displayed = this.localIsRoundTrip() ? haversine * 2 : haversine;
@@ -1217,14 +1305,18 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     } else if (this.localPointB()) {
       this.calculateRoute(placeId, this.localPointB()!);
     } else {
+      this.routeRequestId++;
+      const resolveRequestId = ++this.originResolveRequestId;
       // Only origin selected, no destination yet.
       // Use fetchFields({fields:['location']}) — FREE within the autocomplete
       // session (no extra SKU). Avoids a billable Directions API call.
       this.resolveCoordFromPlace(suggestion, (latLng: any) => {
+        if (resolveRequestId !== this.originResolveRequestId) return;
+        if (this.pendingDestPlaceId || this.localPointB()) return;
         const pos = { lat: latLng.lat(), lng: latLng.lng() };
         this.localPointA.set(pos);
         this.placeMarkerA(latLng);
-        this.gmap.panTo(latLng);
+        this.centerMapOnPoint(pos);
         this.cdr.detectChanges();
       });
     }
@@ -1245,13 +1337,17 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     } else if (this.localPointA()) {
       this.calculateRoute(this.localPointA()!, placeId);
     } else {
+      this.routeRequestId++;
+      const resolveRequestId = ++this.destResolveRequestId;
       // Only destination selected, no origin yet.
       // Use fetchFields({fields:['location']}) — FREE within autocomplete session.
       this.resolveCoordFromPlace(suggestion, (latLng: any) => {
+        if (resolveRequestId !== this.destResolveRequestId) return;
+        if (this.pendingOriginPlaceId || this.localPointA()) return;
         const pos = { lat: latLng.lat(), lng: latLng.lng() };
         this.localPointB.set(pos);
         this.placeMarkerB(latLng);
-        this.gmap.panTo(latLng);
+        this.centerMapOnPoint(pos);
         this.cdr.detectChanges();
       });
     }
@@ -1453,7 +1549,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   // ── Clear individual point ────────────────────────────────────────────────────
 
   clearPoint(target: 'origin' | 'dest'): void {
+    this.routeRequestId++;
     if (target === 'origin') {
+      this.originResolveRequestId++;
       this.searchOrigin = '';
       this.originSuggestions = [];
       this.pendingOriginPlaceId = null;
@@ -1463,6 +1561,7 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
         this.markerA = null;
       }
     } else {
+      this.destResolveRequestId++;
       this.searchDestination = '';
       this.destSuggestions = [];
       this.pendingDestPlaceId = null;
