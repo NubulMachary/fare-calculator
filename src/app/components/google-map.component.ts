@@ -747,12 +747,22 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   // ── Lifecycle ────────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
-    this.restoreFromMapState(this.mapState);
+    this.restoreFromMapState(this.mapState, true);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    const stopCh = changes['stopIndex'];
+    if (
+      stopCh &&
+      !stopCh.firstChange &&
+      stopCh.previousValue !== stopCh.currentValue
+    ) {
+      this.restoreFromMapState(this.mapState, true);
+      return;
+    }
     if (changes['mapState']) {
-      this.restoreFromMapState(this.mapState);
+      const syncRoundTrip = !!changes['mapState'].firstChange;
+      this.restoreFromMapState(this.mapState, syncRoundTrip);
     }
   }
 
@@ -772,7 +782,10 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
 
   // ── State restoration ────────────────────────────────────────────────────────
 
-  private restoreFromMapState(state: typeof this.mapState): void {
+  private restoreFromMapState(
+    state: typeof this.mapState,
+    syncRoundTripFromInput = true
+  ): void {
     this.pendingOriginPlaceId = null;
     this.pendingDestPlaceId = null;
     this.originSuggestions = [];
@@ -794,7 +807,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
 
     this.searchOrigin = state.origin || '';
     this.searchDestination = state.destination || '';
-    this.localIsRoundTrip.set(state.isRoundTrip ?? true);
+    if (syncRoundTripFromInput) {
+      this.localIsRoundTrip.set(state.isRoundTrip ?? true);
+    }
     if (state.distance > 0) {
       this.localCalculatedDistance.set(state.distance);
       this.localBaseDistance.set(
@@ -1201,8 +1216,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     const base = this.localBaseDistance();
     if (base > 0) {
       this.localCalculatedDistance.set(Math.round((next ? base * 2 : base) * 100) / 100);
-      this.emitState();
     }
+    // Always emit state change to parent, even without distance
+    this.emitState();
   }
 
   // ── Places autocomplete (debounced) ─────────────────────────────────────────

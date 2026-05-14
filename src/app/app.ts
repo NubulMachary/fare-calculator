@@ -43,6 +43,8 @@ export class App implements OnInit {
   // Map modal: when null, modal is closed. When set to -1, it means "single distance";
   // when set to >=0 it points to the stop index the modal will populate.
   showMapModal = signal<number | null>(null);
+  /** Round-trip as toggled in the map modal; applied only when the user clicks Apply Distance. */
+  mapModalDraftRoundTrip = signal<boolean>(true);
 
   // Dynamic stops (multiple distance entries). Each stop can be filled via the map.
   stops = signal<Array<{ id: number; distance: number | string }>>([]);
@@ -141,12 +143,32 @@ export class App implements OnInit {
 
   onMapStateChange(newState: { origin: any, destination: any, distance: number, isRoundTrip?: boolean, pointA?: { lat: number; lng: number } | null, pointB?: { lat: number; lng: number } | null }) {
     const idx = this.showMapModal();
+    if (idx === null) return;
+
+    this.mapModalDraftRoundTrip.set(newState.isRoundTrip ?? true);
+
+    const committedRoundTrip = (
+      prev: { isRoundTrip?: boolean } | null | undefined
+    ): boolean => {
+      if (prev && prev.isRoundTrip !== undefined) {
+        return prev.isRoundTrip;
+      }
+      return newState.isRoundTrip ?? true;
+    };
+
     if (idx === -1) {
-      // Main distance input map
-      this.mainMapState.set(newState);
+      const prev = this.mainMapState();
+      this.mainMapState.set({
+        ...newState,
+        isRoundTrip: committedRoundTrip(prev),
+      });
     } else if (typeof idx === 'number' && idx >= 0) {
-      const arr = this.mapStates();
-      arr[idx] = newState;
+      const arr = [...this.mapStates()];
+      const prev = arr[idx];
+      arr[idx] = {
+        ...newState,
+        isRoundTrip: committedRoundTrip(prev),
+      };
       this.mapStates.set(arr);
     }
   }
@@ -174,9 +196,9 @@ export class App implements OnInit {
     const arr = this.stops();
     arr.push({ id: this.nextStopId++, distance: '' });
     this.stops.set(arr);
-    // Add a blank map state for this stop
+    // Add a blank map state for this stop with default round-trip setting
     const mapArr = this.mapStates();
-    mapArr.push({ origin: null, destination: null, distance: 0 });
+    mapArr.push({ origin: null, destination: null, distance: 0, isRoundTrip: true });
     this.mapStates.set(mapArr);
     this.calculatePrice();
   }
@@ -322,14 +344,26 @@ export class App implements OnInit {
     }
 
     if (mapDistance > 0) {
+      const draftRt = this.mapModalDraftRoundTrip();
+
       if (active === -1) {
         this.distance.set(mapDistance);
+        this.mainMapState.update((ms) =>
+          ms ? { ...ms, isRoundTrip: draftRt } : ms
+        );
       } else {
         const arr = this.stops();
         if (active >= 0 && active < arr.length) {
           arr[active].distance = mapDistance;
           this.stops.set(arr);
         }
+        this.mapStates.update((states) => {
+          const copy = [...states];
+          if (active >= 0 && active < copy.length) {
+            copy[active] = { ...copy[active], isRoundTrip: draftRt };
+          }
+          return copy;
+        });
       }
       this.showMapModal.set(null);
       this.calculatePrice();
@@ -347,10 +381,9 @@ export class App implements OnInit {
   // Open the map modal for a given stop index, or for the single distance input when index is null
   openMapFor(index: number | null): void {
     // Use -1 to represent the single distance input so that `null` remains the closed state.
-    if (index === null) {
-      this.showMapModal.set(-1);
-    } else {
-      this.showMapModal.set(index);
-    }
+    const slot = index === null ? -1 : index;
+    this.showMapModal.set(slot);
+    const prevState = slot === -1 ? this.mainMapState() : this.mapStates()[slot];
+    this.mapModalDraftRoundTrip.set(prevState?.isRoundTrip ?? true);
   }
 }
