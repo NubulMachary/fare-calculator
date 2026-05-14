@@ -217,25 +217,33 @@
                   📍 Map
                 </button>
               </div>
+              <span *ngIf="mainMapState()?.isRoundTrip !== undefined" class="text-xs text-gray-500">
+                {{ mainMapState()?.isRoundTrip ? '🔄 Round Trip' : '➡️ One Way' }}
+              </span>
             </div>
 
             <!-- Dynamic Stops (multiple distances) -->
             <div style="display:flex; flex-direction:column; gap:10px;">
              
               <div class="">
-                <div *ngFor="let stop of stops(); let i = index" class="flex gap-2 items-center">
-                  <input
-                    type="number"
-                    [ngModel]="stops()[i].distance"
-                    [ngModelOptions]="{standalone: true}"
-                    (ngModelChange)="updateStopDistance(i, $event)"
-                    placeholder="Distance for stop"
-                    min="0"
-                    step="0.1"
-                    class="flex-1 px-3 py-2 border border-gray-300 rounded-lg"
-                  />
-                  <button type="button" (click)="openMapFor(i)" class="px-3 py-2 bg-indigo-600 text-white rounded">📍</button>
-                  <button type="button" (click)="removeStop(i)" class="px-3 py-2 bg-gray-200 text-gray-700 rounded">✕</button>
+                <div *ngFor="let stop of stops(); let i = index" class="flex flex-col gap-1">
+                  <div class="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      [ngModel]="stops()[i].distance"
+                      [ngModelOptions]="{standalone: true}"
+                      (ngModelChange)="updateStopDistance(i, $event)"
+                      placeholder="Distance for stop"
+                      min="0"
+                      step="0.1"
+                      class="flex-1 px-3 py-2 border border-gray-300 rounded-lg"
+                    />
+                    <button type="button" (click)="openMapFor(i)" class="px-3 py-2 bg-indigo-600 text-white rounded">📍</button>
+                    <button type="button" (click)="removeStop(i)" class="px-3 py-2 bg-gray-200 text-gray-700 rounded">✕</button>
+                  </div>
+                  <span *ngIf="mapStates()[i]?.isRoundTrip !== undefined" class="text-xs text-gray-500 ml-2">
+                    {{ mapStates()[i]?.isRoundTrip ? '🔄 Round Trip' : '➡️ One Way' }}
+                  </span>
                 </div>
               </div>
                <div class="flex items-center justify-between">
@@ -283,7 +291,7 @@
             <!-- Driver Expense Input -->
             <div style="display:flex; flex-direction:column; gap:10px;">
               <label for="driverExpense" class="block text-sm font-semibold text-gray-700">
-                Driver Cost (₹)
+                Driver Cost (₹/day)
               </label>
               <input
                 id="driverExpense"
@@ -301,7 +309,7 @@
             <!-- Toll/Extra Expenses Input -->
             <div style="display:flex; flex-direction:column; gap:10px;">
               <label for="tollExpense" class="block text-sm font-semibold text-gray-700">
-                Total Tolls / Extra Expenses (₹)
+                Total Trip Tolls / Extra Expenses (₹)
               </label>
               <input
                 id="tollExpense"
@@ -319,7 +327,7 @@
             <!-- Profit Margin Input -->
             <div style="display:flex; flex-direction:column; gap:10px;">
               <label for="profit" class="block text-sm font-semibold text-gray-700">
-                Profit (₹)
+                Profit (₹/day)
               </label>
               <input
                 id="profit"

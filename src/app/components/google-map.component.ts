@@ -747,12 +747,22 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   // ── Lifecycle ────────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
-    this.restoreFromMapState(this.mapState);
+    this.restoreFromMapState(this.mapState, true);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    const stopCh = changes['stopIndex'];
+    if (
+      stopCh &&
+      !stopCh.firstChange &&
+      stopCh.previousValue !== stopCh.currentValue
+    ) {
+      this.restoreFromMapState(this.mapState, true);
+      return;
+    }
     if (changes['mapState']) {
-      this.restoreFromMapState(this.mapState);
+      const syncRoundTrip = !!changes['mapState'].firstChange;
+      this.restoreFromMapState(this.mapState, syncRoundTrip);
     }
   }
 
@@ -772,7 +782,10 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
 
   // ── State restoration ────────────────────────────────────────────────────────
 
-  private restoreFromMapState(state: typeof this.mapState): void {
+  private restoreFromMapState(
+    state: typeof this.mapState,
+    syncRoundTripFromInput = true
+  ): void {
     this.pendingOriginPlaceId = null;
     this.pendingDestPlaceId = null;
     this.originSuggestions = [];
@@ -794,7 +807,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
 
     this.searchOrigin = state.origin || '';
     this.searchDestination = state.destination || '';
-    this.localIsRoundTrip.set(state.isRoundTrip ?? true);
+    if (syncRoundTripFromInput) {
+      this.localIsRoundTrip.set(state.isRoundTrip ?? true);
+    }
     if (state.distance > 0) {
       this.localCalculatedDistance.set(state.distance);
       this.localBaseDistance.set(
@@ -1076,6 +1091,20 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     });
   }
 
+  /**
+   * After fitMapToPoints, the map center sits between A and B. When the user
+   * just picked origin (or destination) from search, pan to that leg so the
+   * marker they care about is in view — same feel as single-point resolve + center.
+   */
+  private panToRouteLegAfterFit(which: 'origin' | 'destination', startLL: any, endLL: any): void {
+    if (!this.gmap) return;
+    google.maps.event.addListenerOnce(this.gmap, 'idle', () => {
+      if (!this.gmap) return;
+      if (which === 'origin') this.gmap.panTo(startLL);
+      else this.gmap.panTo(endLL);
+    });
+  }
+
   // ── Directions / Distance ────────────────────────────────────────────────────
 
   /**
@@ -1092,7 +1121,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
   private calculateRoute(
     originRef?: { lat: number; lng: number } | string,
     destinationRef?: { lat: number; lng: number } | string,
-    refreshLabels = false
+    refreshLabels = false,
+    /** After fitting the full route, pan to the leg the user just chose from search. */
+    mapLegFocus: 'none' | 'origin' | 'destination' = 'none'
   ): void {
     // Fall back to stored signals when not explicitly passed
     const oRef = originRef  ?? this.localPointA();
@@ -1141,6 +1172,11 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
             { lat: startLatLng.lat(), lng: startLatLng.lng() },
             { lat: endLatLng.lat(), lng: endLatLng.lng() }
           );
+          if (mapLegFocus === 'origin') {
+            this.panToRouteLegAfterFit('origin', startLatLng, endLatLng);
+          } else if (mapLegFocus === 'destination') {
+            this.panToRouteLegAfterFit('destination', startLatLng, endLatLng);
+          }
 
           // Populate input labels from the Directions response.
           // leg.start_address / end_address are always returned for free.
@@ -1165,6 +1201,11 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
           const b = this.localPointB();
           if (a && b) {
             this.fitMapToPoints(a, b);
+            if (mapLegFocus === 'origin') {
+              this.panToRouteLegAfterFit('origin', new google.maps.LatLng(a.lat, a.lng), new google.maps.LatLng(b.lat, b.lng));
+            } else if (mapLegFocus === 'destination') {
+              this.panToRouteLegAfterFit('destination', new google.maps.LatLng(a.lat, a.lng), new google.maps.LatLng(b.lat, b.lng));
+            }
             const haversine = this.haversineKm(a, b);
             this.localBaseDistance.set(Math.round(haversine * 100) / 100);
             const displayed = this.localIsRoundTrip() ? haversine * 2 : haversine;
@@ -1201,8 +1242,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     const base = this.localBaseDistance();
     if (base > 0) {
       this.localCalculatedDistance.set(Math.round((next ? base * 2 : base) * 100) / 100);
-      this.emitState();
     }
+    // Always emit state change to parent, even without distance
+    this.emitState();
   }
 
   // ── Places autocomplete (debounced) ─────────────────────────────────────────
@@ -1301,9 +1343,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     this.originSessionToken = null;
 
     if (this.pendingDestPlaceId) {
-      this.calculateRoute(placeId, this.pendingDestPlaceId);
+      this.calculateRoute(placeId, this.pendingDestPlaceId, false, 'origin');
     } else if (this.localPointB()) {
-      this.calculateRoute(placeId, this.localPointB()!);
+      this.calculateRoute(placeId, this.localPointB()!, false, 'origin');
     } else {
       this.routeRequestId++;
       const resolveRequestId = ++this.originResolveRequestId;
@@ -1333,9 +1375,9 @@ export class GoogleMapComponent implements OnInit, OnDestroy, OnChanges, AfterVi
     this.destSessionToken = null;
 
     if (this.pendingOriginPlaceId) {
-      this.calculateRoute(this.pendingOriginPlaceId, placeId);
+      this.calculateRoute(this.pendingOriginPlaceId, placeId, false, 'destination');
     } else if (this.localPointA()) {
-      this.calculateRoute(this.localPointA()!, placeId);
+      this.calculateRoute(this.localPointA()!, placeId, false, 'destination');
     } else {
       this.routeRequestId++;
       const resolveRequestId = ++this.destResolveRequestId;
