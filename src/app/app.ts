@@ -1,5 +1,15 @@
-import { Component, signal, OnInit } from '@angular/core';
-import { DistanceService } from './services/distance.service';
+import { Component, signal, OnInit, OnDestroy, Inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
+import { environment } from '../environments/environment';
+import {
+  FARE_QUOTE_MESSAGE_APPLY,
+  FARE_QUOTE_MESSAGE_PREFILL,
+  FARE_QUOTE_MESSAGE_READY,
+  FareQuoteMapLegState,
+  FareQuotePayload,
+  FareQuotePrefillMessage,
+  FareQuoteSessionPrefill,
+} from './models/fare-quote-bridge.model';
 
 @Component({
   selector: 'app-root',
@@ -7,7 +17,7 @@ import { DistanceService } from './services/distance.service';
   standalone: false,
   styleUrl: './app.css'
 })
-export class App implements OnInit {
+export class App implements OnInit, OnDestroy {
   // Per-stop map state: array of { origin, destination, distance, isRoundTrip, pointA, pointB }
   mapStates = signal<Array<{ origin: any, destination: any, distance: number, isRoundTrip?: boolean, pointA?: { lat: number; lng: number } | null, pointB?: { lat: number; lng: number } | null }>>([]);
   // Map state for the main (single) distance input
@@ -16,7 +26,7 @@ export class App implements OnInit {
   distance = signal<number | string>('');
   mileage = signal<number | string>(7);
   fuelPrice = signal<number | string>(90);
-  driverExpense = signal<number | string>('');
+  driverExpense = signal<number | string>(1500);
   tollExpense = signal<number | string>('');
   profit = signal<number | string>('');
   // New: total booking days (defaults to 1)
@@ -54,6 +64,22 @@ export class App implements OnInit {
 
   // Summary popup
   showSummary = signal<boolean>(false);
+
+  /** Opened from RecordMyTrip booking form (postMessage bridge). */
+  bookingEmbedMode = signal(false);
+  private bookingSessionId: string | null = null;
+  private bookingReturnOrigin: string | null = null;
+  private bookingMessageBound = false;
+  private readonly onBookingMessage = (event: MessageEvent): void => {
+    if (!this.bookingReturnOrigin || event.origin !== this.bookingReturnOrigin) {
+      return;
+    }
+    const data = event.data as FareQuotePrefillMessage | undefined;
+    if (data?.type !== FARE_QUOTE_MESSAGE_PREFILL || data.sessionId !== this.bookingSessionId) {
+      return;
+    }
+    this.applySessionPrefill(data.prefill);
+  };
 
   /** Build a structured summary object consumed by the popup template. */
   summaryData() {
@@ -186,8 +212,183 @@ export class App implements OnInit {
   }
 
   ngOnInit(): void {
-    // Subscribe to distance changes and update the distance input
-    // This is handled through the distanceService.calculatedDistance signal
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+    this.initBookingEmbedFromUrl();
+  }
+
+  ngOnDestroy(): void {
+    if (this.bookingMessageBound && typeof window !== 'undefined') {
+      window.removeEventListener('message', this.onBookingMessage);
+      this.bookingMessageBound = false;
+    }
+  }
+
+  constructor(@Inject(PLATFORM_ID) private readonly platformId: object) {}
+
+  private initBookingEmbedFromUrl(): void {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('source') !== 'booking') {
+      return;
+    }
+    const sessionId = params.get('session');
+    const returnOrigin = params.get('returnOrigin');
+    if (!sessionId || !returnOrigin) {
+      return;
+    }
+    if (!environment.allowedBookingOrigins.includes(returnOrigin)) {
+      return;
+    }
+
+    this.bookingEmbedMode.set(true);
+    this.bookingSessionId = sessionId;
+    this.bookingReturnOrigin = returnOrigin;
+
+    window.addEventListener('message', this.onBookingMessage);
+    this.bookingMessageBound = true;
+
+    if (window.opener && typeof window.opener.postMessage === 'function') {
+      window.opener.postMessage(
+        { type: FARE_QUOTE_MESSAGE_READY, sessionId },
+        returnOrigin,
+      );
+    }
+  }
+
+  private applySessionPrefill(prefill: FareQuoteSessionPrefill): void {
+    if (prefill.payload) {
+      this.restoreFromFareQuotePayload(prefill.payload);
+      return;
+    }
+    if (prefill.bookingDays != null) {
+      this.bookingDays.set(prefill.bookingDays);
+    }
+    if (prefill.destination) {
+      this.mainMapState.update((ms) => ({
+        origin: ms?.origin ?? null,
+        destination: prefill.destination ?? ms?.destination ?? null,
+        distance: ms?.distance ?? 0,
+        isRoundTrip: ms?.isRoundTrip,
+        pointA: ms?.pointA,
+        pointB: ms?.pointB,
+      }));
+    }
+    this.calculatePrice();
+  }
+
+  private normalizeMapLegState(
+    state: FareQuoteMapLegState | null | undefined,
+  ): FareQuoteMapLegState | null {
+    if (!state) {
+      return null;
+    }
+    return {
+      origin: state.origin ?? null,
+      destination: state.destination ?? null,
+      distance: state.distance ?? 0,
+      isRoundTrip: state.isRoundTrip,
+      pointA: state.pointA ?? null,
+      pointB: state.pointB ?? null,
+    };
+  }
+
+  private serializeMapLegState(
+    state: {
+      origin: unknown;
+      destination: unknown;
+      distance: number;
+      isRoundTrip?: boolean;
+      pointA?: { lat: number; lng: number } | null;
+      pointB?: { lat: number; lng: number } | null;
+    } | null
+      | undefined,
+  ): FareQuoteMapLegState | null {
+    if (!state) {
+      return null;
+    }
+    const asLabel = (v: unknown): string | null => {
+      if (v == null) {
+        return null;
+      }
+      if (typeof v === 'string') {
+        return v;
+      }
+      return String(v);
+    };
+    return {
+      origin: asLabel(state.origin),
+      destination: asLabel(state.destination),
+      distance: state.distance ?? 0,
+      isRoundTrip: state.isRoundTrip,
+      pointA: state.pointA ?? null,
+      pointB: state.pointB ?? null,
+    };
+  }
+
+  buildFareQuotePayload(): FareQuotePayload {
+    this.calculatePrice();
+    const summary = this.summaryData();
+    return {
+      version: 1,
+      inputs: {
+        distance: this.distance(),
+        mileage: this.mileage(),
+        fuelPrice: this.fuelPrice(),
+        driverExpense: this.driverExpense(),
+        tollExpense: this.tollExpense(),
+        profit: this.profit(),
+        bookingDays: this.bookingDays(),
+        stops: this.stops().map((s) => ({ id: s.id, distance: s.distance })),
+        mainMapState: this.serializeMapLegState(this.mainMapState()),
+        mapStates: this.mapStates().map((ms) => this.serializeMapLegState(ms)!),
+      },
+      summary,
+      appliedAt: new Date().toISOString(),
+    };
+  }
+
+  restoreFromFareQuotePayload(payload: FareQuotePayload): void {
+    const inputs = payload.inputs;
+    this.distance.set(inputs.distance);
+    this.mileage.set(inputs.mileage);
+    this.fuelPrice.set(inputs.fuelPrice);
+    this.driverExpense.set(inputs.driverExpense);
+    this.tollExpense.set(inputs.tollExpense);
+    this.profit.set(inputs.profit);
+    this.bookingDays.set(inputs.bookingDays);
+    this.stops.set(inputs.stops.map((s) => ({ id: s.id, distance: s.distance })));
+    this.nextStopId = Math.max(1, ...inputs.stops.map((s) => s.id), 0) + 1;
+    this.mainMapState.set(this.normalizeMapLegState(inputs.mainMapState));
+    this.mapStates.set(inputs.mapStates.map((ms) => this.normalizeMapLegState(ms)!));
+    this.calculatePrice();
+  }
+
+  applyToBooking(): void {
+    if (!this.bookingEmbedMode() || !this.bookingSessionId || !this.bookingReturnOrigin) {
+      return;
+    }
+    const summary = this.summaryData();
+    if (summary.grandTotal <= 0 || summary.totalKm <= 0) {
+      return;
+    }
+    const payload = this.buildFareQuotePayload();
+    if (window.opener && typeof window.opener.postMessage === 'function') {
+      window.opener.postMessage(
+        {
+          type: FARE_QUOTE_MESSAGE_APPLY,
+          sessionId: this.bookingSessionId,
+          payload,
+        },
+        this.bookingReturnOrigin,
+      );
+    }
+    window.close();
+  }
+
+  canApplyToBooking(): boolean {
+    const s = this.summaryData();
+    return s.grandTotal > 0 && s.totalKm > 0;
   }
 
   // Add a new stop (distance entry) and recalculate totals
@@ -314,7 +515,7 @@ export class App implements OnInit {
     this.distance.set('');
     this.mileage.set(7);
     this.fuelPrice.set(90);
-    this.driverExpense.set(1000);
+    this.driverExpense.set(1500);
     this.tollExpense.set('');
     this.profit.set(5000);
     this.bookingDays.set(1);
